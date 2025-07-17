@@ -1,31 +1,32 @@
+
 import streamlit as st
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 import scipy.stats as stats
+from pathlib import Path
 import os
+
+
 
 st.set_page_config(page_title="Análise de Clusters", layout="wide")
 
 st.title("Dashboard de Análise de Clusters por Arquivo, Método e Classe")
 
-PASTA_DADOS = r"G:\\.shortcut-targets-by-id\1MB59B0WEFqH12bJOuljBxyIcY9y6kCEr\Mapas - Seleção de Estudos de Caso\Banco de dados\teste_clusterizacao\cluster\teste_artigo\metricas"
-PASTA_ANALISES = r"G:\\.shortcut-targets-by-id\1MB59B0WEFqH12bJOuljBxyIcY9y6kCEr\Mapas - Seleção de Estudos de Caso\Banco de dados\teste_clusterizacao\cluster\teste_artigo\merged"
+BASE_DIR = Path(__file__).parent          # raiz do repo no deploy
+PASTA_DADOS    = BASE_DIR / "data" / "metricas"
+PASTA_ANALISES = BASE_DIR / "data" / "merged"
 
 @st.cache_data
-def carregar_todos_arquivos(pasta):
+def carregar_todos_arquivos(pasta: Path):
     arquivos = {}
-    for root, _, files in os.walk(pasta):
-        for f in files:
-            if f.endswith(".csv"):
-                caminho_completo = os.path.join(root, f)
-                try:
-                    df = pd.read_csv(caminho_completo)
-                    df = df.loc[:, ~df.columns.str.contains("^Unnamed")]
-                    chave = os.path.relpath(caminho_completo, pasta)
-                    arquivos[chave] = df
-                except Exception as e:
-                    st.warning(f"Erro ao carregar {f}: {e}")
+    for csv in pasta.rglob("*.csv"):      # percorre recursivamente
+        try:
+            df = pd.read_csv(csv)
+            df = df.loc[:, ~df.columns.str.contains("^Unnamed")]
+            arquivos[csv.name] = df       # chave = só o nome do arquivo
+        except Exception as e:
+            st.warning(f"Erro em {csv}: {e}")
     return arquivos
 
 def normalizar_df(df, estatisticas):
