@@ -14,27 +14,30 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# CSS Roboto + estilo
+# CSS Roboto + estilo ----------------------------------------------------
 st.markdown(
     """
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap');
         html, body, [class*="css"]  {font-family: 'Roboto', sans-serif;}
         #MainMenu, footer {visibility:hidden;}
-        .dashboard-title {font-size: 80px; font-weight:700; color:#C65534; margin:0; line-height:1.1;}
+        .dashboard-title {font-size: 84px; font-weight:700; color:#C65534; margin:0; line-height:1.05;}
     </style>
     """,
     unsafe_allow_html=True,
 )
 
-# ───────────────────────── Cabeçalho ─────────────────────────
+# ───────────────────────── Cabeçalho ------------------------------------
 logo_path = Path(__file__).parent / "data" / "assets" / "logo_dash.png"
 col_logo, col_title = st.columns([2, 8])
 with col_logo:
     if logo_path.exists():
-        st.image(str(logo_path), width=140)
+        st.image(str(logo_path), width=280)  # imagem dobrada
 with col_title:
-    st.markdown("<p class='dashboard-title'>DASHBOARD DE ANÁLISE DE CLUSTERS PARA O MUNICÍPIO DE SÃO PAULO</p>",unsafe_allow_html=True)
+    st.markdown(
+        "<p class='dashboard-title'>DASHBOARD DE ANÁLISE DE CLUSTERS PARA O MUNICÍPIO DE SÃO PAULO</p>",
+        unsafe_allow_html=True,
+    )
 
 # ───────────────────────── Constantes ─────────────────────────
 PLOTLY_TEMPLATE = "plotly_white"
