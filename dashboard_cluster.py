@@ -143,7 +143,6 @@ def plot_univariadas(df, estatistica, group_col):
         n_por_classe = df_var.groupby(group_col)[estatistica].count().min()
         col1, col2 = st.columns(2)
 
-        # ----- Coluna 1: Distribuição -----
         with col1:
             if n_por_classe <= 15:
                 fig_strip = px.strip(
@@ -171,7 +170,6 @@ def plot_univariadas(df, estatistica, group_col):
                 )
                 st.plotly_chart(fig_hist, use_container_width=True)
 
-        # ----- Coluna 2: Violin + Box -----
         with col2:
             fig_violin = px.violin(
                 df_var,
@@ -186,7 +184,6 @@ def plot_univariadas(df, estatistica, group_col):
             )
             st.plotly_chart(fig_violin, use_container_width=True)
 
-        # ----- Resumo estatístico -----
         resumo = (
             df_var.groupby(group_col)[estatistica]
             .agg(n="count", média="mean", mediana="median", mín="min", máx="max", desvio="std")
@@ -213,40 +210,4 @@ def analise_estatistica_variavel(group_col):
     col_var = st.selectbox("Variável numérica:", colunas_num, index=0)
 
     st.markdown("### ANOVA")
-    grupos = [grupo[col_var].dropna().values for _, grupo in df_var.groupby(group_col)]
-    if len(grupos) > 1:
-        f_stat, p_value = stats.f_oneway(*grupos)
-        st.write(f"F = {f_stat:.4f},  p = {p_value:.4f}")
-        st.success("Diferença significativa." if p_value < 0.05 else "Sem diferença significativa.")
-    else:
-        st.warning("Não há grupos suficientes para ANOVA.")
-
-    col1, col2 = st.columns(2)
-    with col1:
-        st.markdown("#### Histograma por grupo")
-        fig_hist = px.histogram(
-            df_var,
-            x=col_var,
-            color=group_col,
-            color_discrete_map=CLASSE_CORES,
-            marginal="box",
-            nbins=20,
-            template=PLOTLY_TEMPLATE,
-        )
-        st.plotly_chart(fig_hist, use_container_width=True)
-    with col2:
-        st.markdown("#### Boxplot por grupo")
-        fig_box = px.box(
-            df_var,
-            x=group_col,
-            y=col_var,
-            color=group_col,
-            color_discrete_map=CLASSE_CORES,
-            template=PLOTLY_TEMPLATE,
-        )
-        st.plotly_chart(fig_box, use_container_width=True)
-
-# ───────────────────────── Carregamento inicial ─────────────────────────
-bases = carregar_todos_arquivos(PASTA_DADOS)
-if not bases:
-    st.error("Nenhum CSV encontrado em data/metricas.")
+    grupos = [grupo[col_var].dropna().values for _, grupo in df_var
