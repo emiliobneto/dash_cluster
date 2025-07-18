@@ -34,7 +34,7 @@ with col_logo:
     if logo_path.exists():
         st.image(str(logo_path), width=140)  # imagem dobrada
 with col_title:
-    st.markdown(
+    st.title(
         "<p class='dashboard-title'>DASHBOARD DE ANÁLISE DE CLUSTERS PARA O MUNICÍPIO DE SÃO PAULO</p>",
         unsafe_allow_html=True,
     )
