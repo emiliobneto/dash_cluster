@@ -6,6 +6,8 @@ import scipy.stats as stats
 import numpy as np
 from pathlib import Path
 import os
+from itertools import combinations
+import statsmodels.stats.multitest as smm
 
 # ───────────────────────── Configuração global ─────────────────────────
 st.set_page_config(
@@ -85,22 +87,17 @@ def normalizar_df(df, est_cols):
                 if mn!=mx:
                     df_n.loc[mask,est] = (df_n.loc[mask,est]-mn)/(mx-mn)
     return df_n
-# -----------------------------------------------------------
-# Função utilitária
-# -----------------------------------------------------------
-SIG_BINS   = [-np.inf, 0.001, 0.01, 0.05, 1]
-SIG_LABELS = ["***",   "**",  "*",  "ns"]
 
-def resumo_por_cluster(df: pd.DataFrame,
+# ───────────────────────── Estatísticas auxiliares ─────────────────────────
+SIG_BINS   = [-np.inf, 0.001, 0.01, 0.05, 1]
+SIG_LABELS = ["***",   "**",    "*",  "ns"]
+
+def quadro_resumo_long(df_long: pd.DataFrame,
                        grupo_col: str,
-                       variaveis: list[str]) -> pd.DataFrame:
-    """
-    Devolve um DataFrame onde:
-        • índice  -> variável
-        • colunas -> (estatística, cluster) + p_value + signif
-    """
-    # ----- 1) Estatísticas descritivas -----
-    agg = {
+                       variaveis: list[str],
+                       col_estat: str) -> pd.DataFrame:
+    """Gera quadro (estatísticas por cluster + ANOVA) para DF em formato longo."""
+    agg_dict = {
         "n":      "count",
         "mean":   "mean",
         "std":    "std",
@@ -110,36 +107,60 @@ def resumo_por_cluster(df: pd.DataFrame,
         "75%":    lambda s: s.quantile(0.75),
         "max":    "max",
     }
+    linhas   = []
+    clusters = sorted(df_long[grupo_col].unique())
 
-    estat = (
-        df.groupby(grupo_col)[variaveis]
-          .agg(agg)                         # MultiIndex colunas (variável, estat)
-          .swaplevel(axis=1)                # -> (estat, variável)
-          .sort_index(axis=1)               # ordena estatísticas
-          .swaplevel(axis=1)                # -> (variável, estat)
-          .stack(level=0)                   # índice = variável
-    )
+    for var in variaveis:
+        sub = df_long[df_long["Variável"] == var]
 
-    # ----- 2) ANOVA global por variável -----
+        stats_df = (
+            sub.groupby(grupo_col)[col_estat]
+               .agg(agg_dict).T                    # linhas = estat, colunas = clusters
+        )
+        row = {(estat, c): stats_df.loc[estat, c]
+               for estat in stats_df.index
+               for c in stats_df.columns}
+
+        grupos = [sub.loc[sub[grupo_col] == c, col_estat].dropna() for c in clusters]
+        p_val  = stats.f_oneway(*grupos)[1] if len(grupos) >= 2 and all(len(g) > 1 for g in grupos) else np.nan
+        row["p_value"] = p_val
+        row["signif"]  = (pd.cut([p_val], SIG_BINS, labels=SIG_LABELS).astype(str)[0]
+                          if not np.isnan(p_val) else "na")
+        linhas.append(pd.Series(row, name=var))
+
+    return pd.DataFrame(linhas)
+
+def pairwise_t_matrix(df: pd.DataFrame,
+                  grupo_col: str,
+                  var: str,
+                  estat_col: str,
+                  method: str = "bonferroni") -> pd.DataFrame:
+    """
+    Devolve DataFrame (clusters × clusters) com p-values t-Student.
+    `method`: bonferroni | fdr_bh | None
+    """
     clusters = sorted(df[grupo_col].unique())
-    pvals = {}
-    for v in variaveis:
-        grupos = [df.loc[df[grupo_col] == c, v].dropna() for c in clusters]
-        if all(len(g) > 1 for g in grupos):
-            _, p = stats.f_oneway(*grupos)
-        else:
-            p = np.nan                      # não há dados suficientes
-        pvals[v] = p
+    pvals, idx = [], []
 
-    pval_df = (
-        pd.Series(pvals, name="p_value")
-          .to_frame()
-          .assign(signif=lambda x: pd.cut(
-              x["p_value"], bins=SIG_BINS, labels=SIG_LABELS))
-    )
+    for c1, c2 in combinations(clusters, 2):
+        a = df.loc[df[grupo_col] == c1, estat_col].dropna()
+        b = df.loc[df[grupo_col] == c2, estat_col].dropna()
+        if len(a) > 1 and len(b) > 1:
+            _, p = stats.ttest_ind(a, b, equal_var=False)
+            pvals.append(p)
+            idx.append((c1, c2))
 
-    # ----- 3) Junta estatísticas + p_value -----
-    return estat.join(pval_df)
+    # correção múltiplos testes
+    if method is not None and pvals:
+        pvals = smm.multipletests(pvals, method=method)[1]
+
+    # monta matriz simétrica
+    mat = pd.DataFrame(index=clusters, columns=clusters, dtype=float)
+    for (c1, c2), p in zip(idx, pvals):
+        mat.loc[c1, c2] = mat.loc[c2, c1] = p
+    np.fill_diagonal(mat.values, np.nan)
+    return mat
+
 # ───────────────────────── Funções de gráfico ─────────────────────────
 def plot_barras(df,est):
     fig=px.bar(df,x='Variável',y=est,color='Classe',color_discrete_map=CLASSE_CORES,
@@ -397,41 +418,6 @@ with aba_univ:
         estat_univ         # estatística que o usuário escolheu p/ análise
     )
 
-    from itertools import combinations
-import statsmodels.stats.multitest as smm   # precisa de statsmodels instalado
-
-def pairwise_t_matrix(df: pd.DataFrame,
-                      grupo_col: str,
-                      var: str,
-                      estat_col: str,
-                      method: str = "bonferroni") -> pd.DataFrame:
-    """
-    Devolve DataFrame (clusters × clusters) com p-values t-Student.
-    `method`: bonferroni | fdr_bh | None
-    """
-    clusters = sorted(df[grupo_col].unique())
-    pvals, idx = [], []
-
-    for c1, c2 in combinations(clusters, 2):
-        a = df.loc[df[grupo_col] == c1, estat_col].dropna()
-        b = df.loc[df[grupo_col] == c2, estat_col].dropna()
-        if len(a) > 1 and len(b) > 1:
-            _, p = stats.ttest_ind(a, b, equal_var=False)
-            pvals.append(p)
-            idx.append((c1, c2))
-
-    # correção múltiplos testes
-    if method is not None and pvals:
-        pvals = smm.multipletests(pvals, method=method)[1]
-
-    # monta matriz simétrica
-    mat = pd.DataFrame(index=clusters, columns=clusters, dtype=float)
-    for (c1, c2), p in zip(idx, pvals):
-        mat.loc[c1, c2] = mat.loc[c2, c1] = p
-    np.fill_diagonal(mat.values, np.nan)
-    return mat
-
-
     st.dataframe(
         tabela_resumo.style.format({"p_value": "{:.3e}"}),
         use_container_width=True
@@ -449,7 +435,6 @@ def pairwise_t_matrix(df: pd.DataFrame,
             """
         )
 
-# Aba Estatísticas -------------------------------------------------------
 # Aba Estatísticas -------------------------------------------------------
 with aba_stats:
     # ---------------- tabs internas ----------------
@@ -513,27 +498,3 @@ with aba_stats:
                 title=f"p-values t-Student – {var_pair} ({estat_pair})"
             )
             st.plotly_chart(fig, use_container_width=True)
-
-
-# ───────────────────── Sidebar (controles) ─────────────────────
-with st.sidebar:
-    st.markdown("---")
-    met_sel = st.multiselect("Métodos:", metodos, default=metodos)
-    cls_sel = st.multiselect("Classes:", classes, default=classes)
-    var_sel = st.multiselect("Variáveis:", variaveis, default=variaveis)
-    est_sel = st.multiselect("Estatísticas:", estat_cols, default=[estat_cols[0]])
-    view_mode = st.radio(
-        "Visualização:", ["Escala Real", "Normalizado", "Ambos"], index=0
-    )
-
-# ───────────────────── Aplicar filtros ─────────────────────
-df_filt = df[
-    (df["Método"].isin(met_sel))
-    & (df["Classe"].isin(cls_sel))
-    & (df["Variável"].isin(var_sel))
-]
-
-if df_filt.empty:
-    st.warning("Filtros retornaram zero linhas.")
-    st.stop()
-
