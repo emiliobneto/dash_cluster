@@ -7,3 +7,4 @@ numpy>=1.26.0          # dependência explícita do SciPy / Pandas
 pydrive2>=1.19.0
 google-auth>=2.30.0
 gdown>=5.0
+statsmodels>=0.14
