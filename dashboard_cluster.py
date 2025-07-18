@@ -372,34 +372,31 @@ if df_filt.empty:
     st.warning("Filtros retornaram zero linhas.")
     st.stop()
 # -----------------------------------------------------------
-# Streamlit: exibir o quadro
+# Streamlit: exibir o quadro (formato longo)
 # -----------------------------------------------------------
 st.markdown("---")
-st.subheader("Estatísticas por cluster + ANOVA")
+estat_ref = est_sel[0]   # usa a primeira estatística escolhida, ex.: "mínimo"
 
-tabela_resumo = resumo_por_cluster(df_filt, "Classe", var_sel)
+st.subheader(f"Estatísticas por cluster – {estat_ref}")
+
+tabela_resumo = quadro_resumo_long(df_filt, "Classe", var_sel, estat_ref)
 
 st.dataframe(
     tabela_resumo.style.format({"p_value": "{:.3e}"}),
     use_container_width=True
 )
 
-# Legenda opcional
 with st.expander("Legenda de significância (p-value)"):
     st.markdown(
         """
-| Estrelas | p-value ≤ | Interpretação |
+| Estrelas | p ≤ | Interpretação |
 |:---:|:---:|:---|
 | *** | 0.001 | diferença **muito** significativa |
 | **  | 0.01  | diferença **significativa** |
-| *   | 0.05  | diferença *moderada* |
-| ns  | > 0.05| sem diferença significativa |
+| *   | 0.05  | diferença moderada |
+| ns  | > 0.05 | sem diferença significativa |
         """
     )
-# ─────────────────── Tabelas e Download ─────────────────────
-st.markdown("---")
-st.subheader("Tabelas resumidas (clusters x variáveis)")
-
 for est in est_sel:
     st.markdown(f"### {est.capitalize()}")
     pivot = df_filt.pivot_table(index="Classe", columns="Variável", values=est)
