@@ -85,7 +85,61 @@ def normalizar_df(df, est_cols):
                 if mn!=mx:
                     df_n.loc[mask,est] = (df_n.loc[mask,est]-mn)/(mx-mn)
     return df_n
+# -----------------------------------------------------------
+# Função utilitária
+# -----------------------------------------------------------
+SIG_BINS   = [-np.inf, 0.001, 0.01, 0.05, 1]
+SIG_LABELS = ["***",   "**",  "*",  "ns"]
 
+def resumo_por_cluster(df: pd.DataFrame,
+                       grupo_col: str,
+                       variaveis: list[str]) -> pd.DataFrame:
+    """
+    Devolve um DataFrame onde:
+        • índice  -> variável
+        • colunas -> (estatística, cluster) + p_value + signif
+    """
+    # ----- 1) Estatísticas descritivas -----
+    agg = {
+        "n":      "count",
+        "mean":   "mean",
+        "std":    "std",
+        "min":    "min",
+        "25%":    lambda s: s.quantile(0.25),
+        "median": "median",
+        "75%":    lambda s: s.quantile(0.75),
+        "max":    "max",
+    }
+
+    estat = (
+        df.groupby(grupo_col)[variaveis]
+          .agg(agg)                         # MultiIndex colunas (variável, estat)
+          .swaplevel(axis=1)                # -> (estat, variável)
+          .sort_index(axis=1)               # ordena estatísticas
+          .swaplevel(axis=1)                # -> (variável, estat)
+          .stack(level=0)                   # índice = variável
+    )
+
+    # ----- 2) ANOVA global por variável -----
+    clusters = sorted(df[grupo_col].unique())
+    pvals = {}
+    for v in variaveis:
+        grupos = [df.loc[df[grupo_col] == c, v].dropna() for c in clusters]
+        if all(len(g) > 1 for g in grupos):
+            _, p = stats.f_oneway(*grupos)
+        else:
+            p = np.nan                      # não há dados suficientes
+        pvals[v] = p
+
+    pval_df = (
+        pd.Series(pvals, name="p_value")
+          .to_frame()
+          .assign(signif=lambda x: pd.cut(
+              x["p_value"], bins=SIG_BINS, labels=SIG_LABELS))
+    )
+
+    # ----- 3) Junta estatísticas + p_value -----
+    return estat.join(pval_df)
 # ───────────────────────── Funções de gráfico ─────────────────────────
 def plot_barras(df,est):
     fig=px.bar(df,x='Variável',y=est,color='Classe',color_discrete_map=CLASSE_CORES,
@@ -166,61 +220,7 @@ def plot_univariadas(df, est, grp_requested):
                                           mín="min", máx="max", desvio="std").round(2).reset_index()
         st.dataframe(resumo, use_container_width=True)
 
-# -----------------------------------------------------------
-# Função utilitária
-# -----------------------------------------------------------
-SIG_BINS   = [-np.inf, 0.001, 0.01, 0.05, 1]
-SIG_LABELS = ["***",   "**",  "*",  "ns"]
 
-def resumo_por_cluster(df: pd.DataFrame,
-                       grupo_col: str,
-                       variaveis: list[str]) -> pd.DataFrame:
-    """
-    Devolve um DataFrame onde:
-        • índice  -> variável
-        • colunas -> (estatística, cluster) + p_value + signif
-    """
-    # ----- 1) Estatísticas descritivas -----
-    agg = {
-        "n":      "count",
-        "mean":   "mean",
-        "std":    "std",
-        "min":    "min",
-        "25%":    lambda s: s.quantile(0.25),
-        "median": "median",
-        "75%":    lambda s: s.quantile(0.75),
-        "max":    "max",
-    }
-
-    estat = (
-        df.groupby(grupo_col)[variaveis]
-          .agg(agg)                         # MultiIndex colunas (variável, estat)
-          .swaplevel(axis=1)                # -> (estat, variável)
-          .sort_index(axis=1)               # ordena estatísticas
-          .swaplevel(axis=1)                # -> (variável, estat)
-          .stack(level=0)                   # índice = variável
-    )
-
-    # ----- 2) ANOVA global por variável -----
-    clusters = sorted(df[grupo_col].unique())
-    pvals = {}
-    for v in variaveis:
-        grupos = [df.loc[df[grupo_col] == c, v].dropna() for c in clusters]
-        if all(len(g) > 1 for g in grupos):
-            _, p = stats.f_oneway(*grupos)
-        else:
-            p = np.nan                      # não há dados suficientes
-        pvals[v] = p
-
-    pval_df = (
-        pd.Series(pvals, name="p_value")
-          .to_frame()
-          .assign(signif=lambda x: pd.cut(
-              x["p_value"], bins=SIG_BINS, labels=SIG_LABELS))
-    )
-
-    # ----- 3) Junta estatísticas + p_value -----
-    return estat.join(pval_df)
                            
 # ───────────────────────── Função ANOVA ─────────────────────────
 def analise_estatistica_variavel(grp):
@@ -304,11 +304,17 @@ else:
     df_norm = pd.DataFrame()
 
 # ───────────────────────── Layout em Abas ─────────────────────────
-aba_metricas, aba_univ, aba_stats = st.tabs(["📊 Métricas", "🏷️ Univariadas", "📐 Estatísticas"])
+aba_metricas, aba_univ, aba_stats = st.tabs(
+    ["📊 Métricas", "🏷️ Univariadas", "📐 Estatísticas"]
+)
 
 # Aba Métricas -----------------------------------------------------------
 with aba_metricas:
-    metodo_radio = st.radio("Filtrar método:", ["Todos"] + met_sel, horizontal=True)
+    metodo_radio = st.radio(
+        "Filtrar método:", ["Todos"] + met_sel, horizontal=True
+    )
+
+    # -------- Gráficos --------
     for est in est_sel:
         st.header(f"Estatística: {est}")
         for mode, data in [("Escala Real", df_filt), ("Normalizado", df_norm)]:
@@ -316,11 +322,43 @@ with aba_metricas:
                 st.subheader(mode)
                 col1, col2 = st.columns(2)
                 with col1:
-                    d = data if metodo_radio == "Todos" else data[data["Método"] == metodo_radio]
+                    d = (
+                        data
+                        if metodo_radio == "Todos"
+                        else data[data["Método"] == metodo_radio]
+                    )
                     st.plotly_chart(plot_barras(d, est), use_container_width=True)
                 with col2:
-                    d = data if metodo_radio == "Todos" else data[data["Método"] == metodo_radio]
-                    st.plotly_chart(plot_radar(d, est, d["Método"].unique(), cls_sel), use_container_width=True)
+                    d = (
+                        data
+                        if metodo_radio == "Todos"
+                        else data[data["Método"] == metodo_radio]
+                    )
+                    st.plotly_chart(
+                        plot_radar(d, est, d["Método"].unique(), cls_sel),
+                        use_container_width=True,
+                    )
+
+    # ───────── Pivot-table por estatística ─────────
+    st.markdown("---")
+    st.subheader("Tabelas resumidas (clusters × variáveis)")
+
+    for est in est_sel:
+        st.markdown(f"### {est.capitalize()}")
+        pivot = df_filt.pivot_table(
+            index="Classe", columns="Variável", values=est
+        )
+        st.dataframe(pivot, use_container_width=True)
+
+    # Botão de download — key exclusiva desta aba
+    csv_bytes = df_filt.to_csv(index=False).encode()
+    st.download_button(
+        "⬇️ Baixar CSV filtrado",
+        csv_bytes,
+        file_name="metricas_filtradas.csv",
+        mime="text/csv",
+        key="download_filtrado_metricas",
+    )
 
 # Aba Univariadas --------------------------------------------------------
 with aba_univ:
@@ -346,9 +384,136 @@ with aba_univ:
     else:
         plot_univariadas(df_uni, estat_univ, grp_active)
 
+ # ------------------------------------------------------------------
+    # Quadro resumido por cluster (todas as variáveis) + ANOVA
+    # ------------------------------------------------------------------
+    st.markdown("---")
+    st.subheader(f"Resumo por cluster – {estat_univ}")
+
+    tabela_resumo = quadro_resumo_long(
+        df_filt,           # usa o dataframe já filtrado
+        grp_active,        # coluna de agrupamento (Classe ou outra)
+        var_sel,           # lista de variáveis selecionadas no sidebar
+        estat_univ         # estatística que o usuário escolheu p/ análise
+    )
+
+    from itertools import combinations
+import statsmodels.stats.multitest as smm   # precisa de statsmodels instalado
+
+def pairwise_t_matrix(df: pd.DataFrame,
+                      grupo_col: str,
+                      var: str,
+                      estat_col: str,
+                      method: str = "bonferroni") -> pd.DataFrame:
+    """
+    Devolve DataFrame (clusters × clusters) com p-values t-Student.
+    `method`: bonferroni | fdr_bh | None
+    """
+    clusters = sorted(df[grupo_col].unique())
+    pvals, idx = [], []
+
+    for c1, c2 in combinations(clusters, 2):
+        a = df.loc[df[grupo_col] == c1, estat_col].dropna()
+        b = df.loc[df[grupo_col] == c2, estat_col].dropna()
+        if len(a) > 1 and len(b) > 1:
+            _, p = stats.ttest_ind(a, b, equal_var=False)
+            pvals.append(p)
+            idx.append((c1, c2))
+
+    # correção múltiplos testes
+    if method is not None and pvals:
+        pvals = smm.multipletests(pvals, method=method)[1]
+
+    # monta matriz simétrica
+    mat = pd.DataFrame(index=clusters, columns=clusters, dtype=float)
+    for (c1, c2), p in zip(idx, pvals):
+        mat.loc[c1, c2] = mat.loc[c2, c1] = p
+    np.fill_diagonal(mat.values, np.nan)
+    return mat
+
+
+    st.dataframe(
+        tabela_resumo.style.format({"p_value": "{:.3e}"}),
+        use_container_width=True
+    )
+
+    with st.expander("Legenda de significância (p-value)"):
+        st.markdown(
+            """
+| Estrelas | p ≤ | Interpretação |
+|:---:|:---:|:---|
+| *** | 0.001 | diferença **muito** significativa |
+| **  | 0.01  | diferença **significativa** |
+| *   | 0.05  | diferença moderada |
+| ns  | > 0.05 | sem diferença significativa |
+            """
+        )
+
+# Aba Estatísticas -------------------------------------------------------
 # Aba Estatísticas -------------------------------------------------------
 with aba_stats:
-    analise_estatistica_variavel(grp_sel)
+    # ---------------- tabs internas ----------------
+    tab_global, tab_t = st.tabs(["Testes globais", "t-Student pairwise"])
+
+    # ---------- 1) Quadro global (ANOVA/Kruskal) ----------
+    with tab_global:
+        estat_ref = est_sel[0]          # primeira estatística escolhida
+        st.subheader(f"Resumo por cluster – {estat_ref}")
+
+        tabela_resumo = quadro_resumo_long(
+            df_filt, grp_sel if grp_sel in df_filt.columns else "Classe",
+            var_sel, estat_ref
+        )
+        st.dataframe(
+            tabela_resumo.style.format({"p_value": "{:.3e}"}),
+            use_container_width=True
+        )
+        with st.expander("Legenda de significância (p-value)"):
+            st.markdown(
+                """
+| Estrelas | p ≤ | Interpretação |
+|:---:|:---:|:---|
+| *** | 0.001 | diferença **muito** significativa |
+| **  | 0.01  | diferença **significativa** |
+| *   | 0.05  | diferença moderada |
+| ns  | > 0.05 | sem diferença significativa |
+                """
+            )
+
+    # ---------- 2) Matriz pairwise t-Student ----------
+    with tab_t:
+        st.subheader("Matriz de p-values t-Student")
+        var_pair = st.selectbox("Variável:", var_sel, key="pair_var")
+        estat_pair = st.selectbox("Estatística:", estat_cols, key="pair_est")
+        corr_method = st.radio(
+            "Correção múltiplos testes:",
+            ["bonferroni", "fdr_bh", "nenhuma"],
+            index=0
+        )
+        method = None if corr_method == "nenhuma" else corr_method
+
+        mat = pairwise_t_matrix(
+            df_filt[df_filt["Variável"] == var_pair],
+            grp_sel if grp_sel in df_filt.columns else "Classe",
+            var_pair,
+            estat_pair,
+            method
+        )
+
+        # escolha: mostrar como tabela ou heatmap
+        view = st.radio("Visualização:", ["Tabela", "Heatmap"], horizontal=True)
+        if view == "Tabela":
+            st.dataframe(mat.style.format("{:.3e}"), use_container_width=True)
+        else:
+            fig = px.imshow(
+                mat,
+                text_auto=".2e",
+                color_continuous_scale="RdBu_r",
+                aspect="auto",
+                title=f"p-values t-Student – {var_pair} ({estat_pair})"
+            )
+            st.plotly_chart(fig, use_container_width=True)
+
 
 # ───────────────────── Sidebar (controles) ─────────────────────
 with st.sidebar:
@@ -371,43 +536,4 @@ df_filt = df[
 if df_filt.empty:
     st.warning("Filtros retornaram zero linhas.")
     st.stop()
-# -----------------------------------------------------------
-# Streamlit: exibir o quadro (formato longo)
-# -----------------------------------------------------------
-st.markdown("---")
-estat_ref = est_sel[0]   # usa a primeira estatística escolhida, ex.: "mínimo"
 
-st.subheader(f"Estatísticas por cluster – {estat_ref}")
-
-tabela_resumo = quadro_resumo_long(df_filt, "Classe", var_sel, estat_ref)
-
-st.dataframe(
-    tabela_resumo.style.format({"p_value": "{:.3e}"}),
-    use_container_width=True
-)
-
-with st.expander("Legenda de significância (p-value)"):
-    st.markdown(
-        """
-| Estrelas | p ≤ | Interpretação |
-|:---:|:---:|:---|
-| *** | 0.001 | diferença **muito** significativa |
-| **  | 0.01  | diferença **significativa** |
-| *   | 0.05  | diferença moderada |
-| ns  | > 0.05 | sem diferença significativa |
-        """
-    )
-for est in est_sel:
-    st.markdown(f"### {est.capitalize()}")
-    pivot = df_filt.pivot_table(index="Classe", columns="Variável", values=est)
-    st.dataframe(pivot, use_container_width=True)
-
-# CSV filtrado completo  -------------------------------------
-csv_bytes = df_filt.to_csv(index=False).encode()
-st.download_button(
-    "⬇️ Baixar CSV filtrado",
-    csv_bytes,
-    file_name="metricas_filtradas.csv",
-    mime="text/csv",
-    key="download_filtrado"  # opcional, mas evita colisão se surgir outro botão
-)
