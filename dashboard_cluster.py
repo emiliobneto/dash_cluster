@@ -166,7 +166,62 @@ def plot_univariadas(df, est, grp_requested):
                                           mín="min", máx="max", desvio="std").round(2).reset_index()
         st.dataframe(resumo, use_container_width=True)
 
+# -----------------------------------------------------------
+# Função utilitária
+# -----------------------------------------------------------
+SIG_BINS   = [-np.inf, 0.001, 0.01, 0.05, 1]
+SIG_LABELS = ["***",   "**",  "*",  "ns"]
 
+def resumo_por_cluster(df: pd.DataFrame,
+                       grupo_col: str,
+                       variaveis: list[str]) -> pd.DataFrame:
+    """
+    Devolve um DataFrame onde:
+        • índice  -> variável
+        • colunas -> (estatística, cluster) + p_value + signif
+    """
+    # ----- 1) Estatísticas descritivas -----
+    agg = {
+        "n":      "count",
+        "mean":   "mean",
+        "std":    "std",
+        "min":    "min",
+        "25%":    lambda s: s.quantile(0.25),
+        "median": "median",
+        "75%":    lambda s: s.quantile(0.75),
+        "max":    "max",
+    }
+
+    estat = (
+        df.groupby(grupo_col)[variaveis]
+          .agg(agg)                         # MultiIndex colunas (variável, estat)
+          .swaplevel(axis=1)                # -> (estat, variável)
+          .sort_index(axis=1)               # ordena estatísticas
+          .swaplevel(axis=1)                # -> (variável, estat)
+          .stack(level=0)                   # índice = variável
+    )
+
+    # ----- 2) ANOVA global por variável -----
+    clusters = sorted(df[grupo_col].unique())
+    pvals = {}
+    for v in variaveis:
+        grupos = [df.loc[df[grupo_col] == c, v].dropna() for c in clusters]
+        if all(len(g) > 1 for g in grupos):
+            _, p = stats.f_oneway(*grupos)
+        else:
+            p = np.nan                      # não há dados suficientes
+        pvals[v] = p
+
+    pval_df = (
+        pd.Series(pvals, name="p_value")
+          .to_frame()
+          .assign(signif=lambda x: pd.cut(
+              x["p_value"], bins=SIG_BINS, labels=SIG_LABELS))
+    )
+
+    # ----- 3) Junta estatísticas + p_value -----
+    return estat.join(pval_df)
+                           
 # ───────────────────────── Função ANOVA ─────────────────────────
 def analise_estatistica_variavel(grp):
     """Estatísticas multivariadas; se grp não existir, usa 'Classe'."""
@@ -316,7 +371,31 @@ df_filt = df[
 if df_filt.empty:
     st.warning("Filtros retornaram zero linhas.")
     st.stop()
+# -----------------------------------------------------------
+# Streamlit: exibir o quadro
+# -----------------------------------------------------------
+st.markdown("---")
+st.subheader("Estatísticas por cluster + ANOVA")
 
+tabela_resumo = resumo_por_cluster(df_filt, "Classe", var_sel)
+
+st.dataframe(
+    tabela_resumo.style.format({"p_value": "{:.3e}"}),
+    use_container_width=True
+)
+
+# Legenda opcional
+with st.expander("Legenda de significância (p-value)"):
+    st.markdown(
+        """
+| Estrelas | p-value ≤ | Interpretação |
+|:---:|:---:|:---|
+| *** | 0.001 | diferença **muito** significativa |
+| **  | 0.01  | diferença **significativa** |
+| *   | 0.05  | diferença *moderada* |
+| ns  | > 0.05| sem diferença significativa |
+        """
+    )
 # ─────────────────── Tabelas e Download ─────────────────────
 st.markdown("---")
 st.subheader("Tabelas resumidas (clusters x variáveis)")
