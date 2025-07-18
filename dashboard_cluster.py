@@ -295,8 +295,29 @@ with aba_univ:
 with aba_stats:
     analise_estatistica_variavel(grp_sel)
 
-# ───────────────────────── Tabelas e Download ---------------------------
+# ───────────────────── Sidebar (controles) ─────────────────────
+with st.sidebar:
+    st.markdown("---")
+    met_sel = st.multiselect("Métodos:", metodos, default=metodos)
+    cls_sel = st.multiselect("Classes:", classes, default=classes)
+    var_sel = st.multiselect("Variáveis:", variaveis, default=variaveis)
+    est_sel = st.multiselect("Estatísticas:", estat_cols, default=[estat_cols[0]])
+    view_mode = st.radio(
+        "Visualização:", ["Escala Real", "Normalizado", "Ambos"], index=0
+    )
 
+# ───────────────────── Aplicar filtros ─────────────────────
+df_filt = df[
+    (df["Método"].isin(met_sel))
+    & (df["Classe"].isin(cls_sel))
+    & (df["Variável"].isin(var_sel))
+]
+
+if df_filt.empty:
+    st.warning("Filtros retornaram zero linhas.")
+    st.stop()
+
+# ─────────────────── Tabelas e Download ─────────────────────
 st.markdown("---")
 st.subheader("Tabelas resumidas (clusters x variáveis)")
 
@@ -305,51 +326,12 @@ for est in est_sel:
     pivot = df_filt.pivot_table(index="Classe", columns="Variável", values=est)
     st.dataframe(pivot, use_container_width=True)
 
-# CSV filtrado completo --------------------------------------------------
-csv_bytes = df_filt.to_csv(index=False).encode()
-st.download_button("⬇️ Baixar CSV filtrado", csv_bytes, file_name="metricas_filtradas.csv")
-
-with st.sidebar:
-    st.markdown("---")
-    met_sel=st.multiselect("Métodos:",metodos,default=metodos)
-    cls_sel=st.multiselect("Classes:",classes,default=classes)
-    var_sel=st.multiselect("Variáveis:",variaveis,default=variaveis)
-    est_sel=st.multiselect("Estatísticas:",estat_cols,default=[estat_cols[0]])
-    view_mode=st.radio("Visualização:",["Escala Real","Normalizado","Ambos"],index=0)
-
-# aplica filtro -------------------------------------------------------
-
-df_filt = df[(df["Método"].isin(met_sel)) &
-             (df["Classe"].isin(cls_sel)) &
-             (df["Variável"].isin(var_sel))]
-
-if df_filt.empty:
-    st.warning("Filtros retornaram zero linhas.")
-    st.stop()
-
-# Normalização -----------------------------------------------------------
-if view_mode in ["Normalizado", "Ambos"]:
-    df_norm = normalizar_df(df_filt, estat_cols)
-else:
-    df_norm = pd.DataFrame()
-
-# … filtros …
-
-if df_filt.empty:
-    st.warning("Filtros retornaram zero linhas.")
-    st.stop()
-
-# Download e tabela ------------------------------------------------------
-st.markdown("---")
-st.subheader("Tabela filtrada")
-st.dataframe(df_filt, use_container_width=True)
-
-# botão ÚNICO (e agora df_filt já existe)
+# CSV filtrado completo  -------------------------------------
 csv_bytes = df_filt.to_csv(index=False).encode()
 st.download_button(
-    label="⬇️ Baixar CSV filtrado",
-    data=csv_bytes,
+    "⬇️ Baixar CSV filtrado",
+    csv_bytes,
     file_name="metricas_filtradas.csv",
     mime="text/csv",
-    key="download_filtrado"   # opcional se for só um botão
+    key="download_filtrado"  # opcional, mas evita colisão se surgir outro botão
 )
