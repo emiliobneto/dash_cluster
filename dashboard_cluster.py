@@ -20,8 +20,19 @@ st.markdown(
         @import url('https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap');
         html, body, [class*="css"] {font-family:'Roboto',sans-serif;}
         #MainMenu, footer {visibility:hidden;}
-        h1 {font-size:84px; font-weight:700; color:#C65534; margin:0; line-height:1.05;}
-        h2 {font-size:64px; font-weight:700; color:#C65534; margin:6px 0 0 0;}
+        h1 {
+            font-size:84px;
+            font-weight:700;
+            color:#C65534 !important;  /* garante cor sobre o tema streamlit */
+            margin:0;
+            line-height:1.05;
+        }
+        h2 {
+            font-size:64px;
+            font-weight:700;
+            color:#C65534 !important;
+            margin:6px 0 0 0;
+        }
     </style>
     """,
     unsafe_allow_html=True,
