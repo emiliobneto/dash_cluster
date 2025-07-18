@@ -21,7 +21,7 @@ st.markdown(
         @import url('https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap');
         html, body, [class*="css"]  {font-family: 'Roboto', sans-serif;}
         #MainMenu, footer {visibility:hidden;}
-        .dashboard-title {font-size: 84px; font-weight:700; color:#C65534; margin:0; line-height:1.05;}
+        .dashboard-title {font-size: 240px; font-weight:700; color:#C65534; margin:0; line-height:1.05;}
     </style>
     """,
     unsafe_allow_html=True,
@@ -32,7 +32,7 @@ logo_path = Path(__file__).parent / "data" / "assets" / "logo_dash.jpg"
 col_logo, col_title = st.columns([2, 8])
 with col_logo:
     if logo_path.exists():
-        st.image(str(logo_path), width=280)  # imagem dobrada
+        st.image(str(logo_path), width=140)  # imagem dobrada
 with col_title:
     st.markdown(
         "<p class='dashboard-title'>DASHBOARD DE ANÁLISE DE CLUSTERS PARA O MUNICÍPIO DE SÃO PAULO</p>",
