@@ -28,7 +28,7 @@ st.markdown(
 )
 
 # ───────────────────────── Cabeçalho ------------------------------------
-logo_path = Path(__file__).parent / "data" / "assets" / "logo_dash.png"
+logo_path = Path(__file__).parent / "data" / "assets" / "logo_dash.jpg"
 col_logo, col_title = st.columns([2, 8])
 with col_logo:
     if logo_path.exists():
