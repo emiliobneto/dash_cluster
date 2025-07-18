@@ -168,33 +168,40 @@ def plot_univariadas(df, est, grp_requested):
 
 # ───────────────────────── Função ANOVA ─────────────────────────
 def analise_estatistica_variavel(grp):
+    """Estatísticas multivariadas; se grp não existir, usa 'Classe'."""
     st.markdown("## 📐 Análise Estatística por Variável")
-    arqs=carregar_todos_arquivos(PASTA_ANALISES)
+    arqs = carregar_todos_arquivos(PASTA_ANALISES)
     if not arqs:
         st.warning("Nenhum arquivo em data/merged.")
         return
-    arq=st.selectbox("Selecione o arquivo:",list(arqs.keys()))
-    dfv=arqs[arq]
+    arq = st.selectbox("Selecione o arquivo:", list(arqs.keys()))
+    dfv = arqs[arq]
+
     if grp not in dfv.columns:
-        st.error(f"Coluna '{grp}' não existe em {arq}.")
-        return
-    num_cols=dfv.select_dtypes(include=['float64','int64']).columns.tolist()
-    col=st.selectbox("Variável numérica:",num_cols)
-    grupos=[g[col].dropna() for _,g in dfv.groupby(grp)]
+        st.info(f"Coluna '{grp}' não existe em {arq} – usando 'Classe'.")
+        grp = "Classe"
+
+    num_cols = dfv.select_dtypes(include=["float64", "int64"]).columns.tolist()
+    col = st.selectbox("Variável numérica:", num_cols)
+    grupos = [g[col].dropna() for _, g in dfv.groupby(grp)]
+
     st.markdown("### ANOVA")
-    if len(grupos)>1:
-        f,p=stats.f_oneway(*grupos)
+    if len(grupos) > 1:
+        f, p = stats.f_oneway(*grupos)
         st.write(f"F = {f:.4f}, p = {p:.4f}")
-        st.success("Diferença significativa." if p<0.05 else "Sem diferença significativa.")
+        st.success("Diferença significativa." if p < 0.05 else "Sem diferença significativa.")
     else:
         st.warning("Não há grupos suficientes para ANOVA.")
-    ch1,ch2=st.columns(2)
+
+    ch1, ch2 = st.columns(2)
     with ch1:
-        st.plotly_chart(px.histogram(dfv,x=col,color=grp,color_discrete_map=CLASSE_CORES,
-                                     nbins=20,marginal='box',template=PLOTLY_TEMPLATE,title="Histograma"),use_container_width=True)
+        st.plotly_chart(px.histogram(dfv, x=col, color=grp, nbins=20, marginal='box',
+                                     color_discrete_map=CLASSE_CORES, template=PLOTLY_TEMPLATE,
+                                     title="Histograma"), use_container_width=True)
     with ch2:
-        st.plotly_chart(px.box(dfv,x=grp,y=col,color=grp,color_discrete_map=CLASSE_CORES,
-                               template=PLOTLY_TEMPLATE,title="Boxplot"),use_container_width=True)
+        st.plotly_chart(px.box(dfv, x=grp, y=col, color=grp,
+                               color_discrete_map=CLASSE_CORES, template=PLOTLY_TEMPLATE,
+                               title="Boxplot"), use_container_width=True)
 
 # ───────────────────────── Carregamento Inicial ─────────────────────────
 metric_files=carregar_todos_arquivos(PASTA_DADOS)
@@ -258,20 +265,27 @@ with aba_metricas:
 
 # Aba Univariadas --------------------------------------------------------
 with aba_univ:
-    # Escolha da variável primeiro
+    # Seleciona variável
     var_univ = st.selectbox("Variável:", variaveis, key="var_univ")
-    # Atualiza lista de classes presentes para a variável selecionada
-    cls_options = sorted(df_filt[df_filt["Variável"] == var_univ][grp_sel].unique())
+
+    # Determina coluna de agrupamento realmente presente
+    grp_active = grp_sel if grp_sel in df_filt.columns else "Classe"
+    if grp_active != grp_sel:
+        st.info(f"Coluna '{grp_sel}' não existe neste arquivo – usando '{grp_active}'.")
+
+    # Opções de clusters disponíveis para a variável escolhida
+    cls_options = sorted(df_filt[df_filt["Variável"] == var_univ][grp_active].unique())
     cls_univ = st.multiselect("Clusters a incluir:", cls_options, default=cls_options)
+
     estat_univ = st.selectbox("Estatística:", estat_cols, key="estat_univ")
 
-    # Filtra dataframe para a variável + classes escolhidas
-    df_uni = df_filt[(df_filt["Variável"] == var_univ) & (df_filt[grp_sel].isin(cls_univ))]
+    # Filtra dataframe
+    df_uni = df_filt[(df_filt["Variável"] == var_univ) & (df_filt[grp_active].isin(cls_univ))]
 
     if df_uni.empty:
         st.warning("Nada para mostrar – verifique filtros de classe.")
     else:
-        plot_univariadas(df_uni, estat_univ, grp_sel)
+        plot_univariadas(df_uni, estat_univ, grp_active)
 
 # Aba Estatísticas -------------------------------------------------------
 with aba_stats:
