@@ -204,29 +204,32 @@ def analise_estatistica_variavel(grp):
                                title="Boxplot"), use_container_width=True)
 
 # ───────────────────────── Carregamento Inicial ─────────────────────────
-metric_files=carregar_todos_arquivos(PASTA_DADOS)
+metric_files = carregar_todos_arquivos(PASTA_DADOS)
 if not metric_files:
-    st.error("Nenhum CSV em data/metricas.")
+    st.error("Nenhum CSV encontrado em data/metricas.")
     st.stop()
-sel_metric=st.selectbox("Selecione o arquivo de métricas:",list(metric_files.keys()))
-df=metric_files[sel_metric]
+sel_metric = st.selectbox("Selecione o arquivo de métricas:", list(metric_files.keys()), key="sel_metric")
+df = metric_files[sel_metric]
+
+# Listas derivadas uma única vez ----------------------------------------
+metodos   = sorted(df['Método'].unique())
+classes   = sorted(df['Classe'].unique())
+variaveis = sorted(df['Variável'].unique())
+estat_cols = [c for c in df.columns if c not in ['Método','Classe','Variável']]
 
 with st.sidebar:
     st.subheader("🔧 Configurações gerais")
-    grp_sel=st.selectbox("Agrupamento (coluna de cluster):",GROUP_COLS)
+    grp_sel = st.selectbox("Agrupamento (coluna de cluster):", GROUP_COLS, key="grp_sel")
 
-metodos=sorted(df['Método'].unique())
-classes=sorted(df['Classe'].unique())
-variaveis=sorted(df['Variável'].unique())
-estat_cols=[c for c in df.columns if c not in ['Método','Classe','Variável']]
-
-with st.sidebar:
     st.markdown("---")
-    met_sel=st.multiselect("Métodos:",metodos,default=metodos)
-    cls_sel=st.multiselect("Classes:",classes,default=classes)
-    var_sel=st.multiselect("Variáveis:",variaveis,default=variaveis)
-    est_sel=st.multiselect("Estatísticas:",estat_cols,default=[estat_cols[0]])
-    view_mode=st.radio("Visualização:",["Escala Real","Normalizado","Ambos"],index=0)
+    met_sel = st.multiselect("Métodos:",    metodos,   default=metodos,   key="met_sel")
+    cls_sel = st.multiselect("Classes:",    classes,   default=classes,   key="cls_sel")
+    var_sel = st.multiselect("Variáveis:",  variaveis, default=variaveis, key="var_sel")
+    est_sel = st.multiselect("Estatísticas:", estat_cols,
+                              default=[estat_cols[0]], key="est_sel")
+    view_mode = st.radio("Visualização:",
+                         ["Escala Real", "Normalizado", "Ambos"],
+                         index=0, key="view_mode")
 
 # aplica filtro ----------------------------------------------------------
 
