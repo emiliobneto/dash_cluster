@@ -333,10 +333,23 @@ if view_mode in ["Normalizado", "Ambos"]:
 else:
     df_norm = pd.DataFrame()
 
+# … filtros …
+
+if df_filt.empty:
+    st.warning("Filtros retornaram zero linhas.")
+    st.stop()
+
 # Download e tabela ------------------------------------------------------
 st.markdown("---")
 st.subheader("Tabela filtrada")
 st.dataframe(df_filt, use_container_width=True)
 
+# botão ÚNICO (e agora df_filt já existe)
 csv_bytes = df_filt.to_csv(index=False).encode()
-st.download_button("⬇️ Baixar CSV filtrado", csv_bytes, file_name="metricas_filtradas.csv")
+st.download_button(
+    label="⬇️ Baixar CSV filtrado",
+    data=csv_bytes,
+    file_name="metricas_filtradas.csv",
+    mime="text/csv",
+    key="download_filtrado"   # opcional se for só um botão
+)
