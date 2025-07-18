@@ -14,25 +14,25 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# CSS Roboto + estilo ----------------------------------------------------
 st.markdown(
     """
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap');
-        html, body, [class*="css"]  {font-family: 'Roboto', sans-serif;}
+        html, body, [class*="css"] {font-family:'Roboto',sans-serif;}
         #MainMenu, footer {visibility:hidden;}
-        .dashboard-title {font-size: 240px; font-weight:700; color:#C65534; margin:0; line-height:1.05;}
+        h1 {font-size:84px; font-weight:700; color:#C65534; margin:0; line-height:1.05;}
+        h2 {font-size:64px; font-weight:700; color:#C65534; margin:6px 0 0 0;}
     </style>
     """,
     unsafe_allow_html=True,
 )
 
 # ───────────────────────── Cabeçalho ------------------------------------
-logo_path = Path(__file__).parent / "data" / "assets" / "logo_dash.jpg"
+logo_path = Path(__file__).parent / "data" / "assets" / "logo_dash.png"
 col_logo, col_title = st.columns([2, 8])
 with col_logo:
     if logo_path.exists():
-        st.image(str(logo_path), width=140)  # imagem dobrada
+        st.image(str(logo_path), width=280)
 with col_title:
     st.title("DASHBOARD DE ANÁLISE DE CLUSTERS PARA O MUNICÍPIO DE SÃO PAULO")
 
