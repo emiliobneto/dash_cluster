@@ -333,34 +333,6 @@ if view_mode in ["Normalizado", "Ambos"]:
 else:
     df_norm = pd.DataFrame()
 
-# ───────────────────────── Layout em Abas ─────────────────────────
-aba_metricas, aba_univ, aba_stats = st.tabs(["📊 Métricas", "🏷️ Univariadas", "📐 Estatísticas"])
-
-# Aba Métricas -----------------------------------------------------------
-with aba_metricas:
-    metodo_radio = st.radio("Filtrar método:", ["Todos"] + met_sel, horizontal=True)
-    for est in est_sel:
-        st.header(f"Estatística: {est}")
-        for mode, data in [("Escala Real", df_filt), ("Normalizado", df_norm)]:
-            if view_mode in [mode, "Ambos"] and not data.empty:
-                st.subheader(mode)
-                col1, col2 = st.columns(2)
-                with col1:
-                    d = data if metodo_radio == "Todos" else data[data["Método"] == metodo_radio]
-                    st.plotly_chart(plot_barras(d, est), use_container_width=True)
-                with col2:
-                    d = data if metodo_radio == "Todos" else data[data["Método"] == metodo_radio]
-                    st.plotly_chart(plot_radar(d, est, d["Método"].unique(), cls_sel), use_container_width=True)
-
-# Aba Univariadas --------------------------------------------------------
-with aba_univ:
-    estat_univ = st.selectbox("Estatística para univariadas:", estat_cols, key="estat_univ")
-    plot_univariadas(df_filt, estat_univ, grp_sel)
-
-# Aba Estatísticas -------------------------------------------------------
-with aba_stats:
-    analise_estatistica_variavel(grp_sel)
-
 # Download e tabela ------------------------------------------------------
 st.markdown("---")
 st.subheader("Tabela filtrada")
