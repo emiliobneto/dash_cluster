@@ -41,7 +41,6 @@ with col_title:
         """,
         unsafe_allow_html=True,
     )
-    st.title("DASHBOARD DE ANÁLISE DE CLUSTERS PARA O MUNICÍPIO DE SÃO PAULO")
 
 # ───────────────────────── Constantes ─────────────────────────
 PLOTLY_TEMPLATE = "plotly_white"
