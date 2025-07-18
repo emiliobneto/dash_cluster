@@ -106,33 +106,65 @@ def plot_radar(df,est,metodos,classes):
                       title=f"Radar Chart - {est.capitalize()} por Variável")
     return fig
 
-def plot_univariadas(df,est,grp):
-    if grp not in df.columns:
-        st.info(f"Coluna '{grp}' não existe neste arquivo.")
-        return
+def plot_univariadas(df, est, grp_requested):
+    """Exibe gráficos univariados + testes estatísticos.
+    Se a coluna escolhida não existir em df, cai automaticamente para 'Classe'."""
+
+    grp = grp_requested if grp_requested in df.columns else "Classe"
+    if grp != grp_requested:
+        st.info(f"Coluna '{grp_requested}' não existe neste arquivo – usando '{grp}'.")
+
     st.markdown("### Análises Univariadas")
-    for var in sorted(df['Variável'].unique()):
-        st.markdown(f"#### Variável: {var}")
-        dv=df[df['Variável']==var]
-        nmin=dv.groupby(grp)[est].count().min()
-        c1,c2=st.columns(2)
+    for var in sorted(df["Variável"].unique()):
+        st.subheader(f"Variável: {var}")
+        dv = df[df["Variável"] == var]
+        grupos = [g[est].dropna() for _, g in dv.groupby(grp)]
+        nmin = min(len(g) for g in grupos)
+
+        # Gráficos ------------------------------------------------------
+        c1, c2 = st.columns(2)
         with c1:
-            if nmin<=15:
-                fg=px.strip(dv,x=grp,y=est,color=grp,color_discrete_map=CLASSE_CORES,
-                             template=PLOTLY_TEMPLATE,stripmode='overlay',title=f"Valores individuais - {var}")
-                fg.update_traces(jitter=0.35,marker_size=8)
+            if nmin <= 15:
+                fg = px.strip(dv, x=grp, y=est, color=grp, stripmode="overlay",
+                               color_discrete_map=CLASSE_CORES, template=PLOTLY_TEMPLATE,
+                               title="Valores Individuais")
+                fg.update_traces(jitter=0.35, marker_size=8)
             else:
-                fg=px.histogram(dv,x=est,color=grp,color_discrete_map=CLASSE_CORES,
-                                nbins=min(20,max(5,dv.shape[0]//3)),marginal='rug',
-                                template=PLOTLY_TEMPLATE,title=f"Distribuição - {var}")
-            st.plotly_chart(fg,use_container_width=True)
+                fg = px.histogram(dv, x=est, color=grp, nbins=min(20, max(5, dv.shape[0] // 3)),
+                                  marginal="rug", color_discrete_map=CLASSE_CORES,
+                                  template=PLOTLY_TEMPLATE, title="Distribuição")
+            st.plotly_chart(fg, use_container_width=True)
         with c2:
-            vg=px.violin(dv,x=grp,y=est,color=grp,box=True,points='all',color_discrete_map=CLASSE_CORES,
-                         template=PLOTLY_TEMPLATE,title=f"Violin/Box - {var}")
-            st.plotly_chart(vg,use_container_width=True)
-        resumo=(dv.groupby(grp)[est].agg(n='count',média='mean',mediana='median',mín='min',máx='max',desvio='std')
-                 .round(2).reset_index())
-        st.dataframe(resumo,use_container_width=True)
+            vg = px.violin(dv, x=grp, y=est, color=grp, box=True, points="all",
+                           color_discrete_map=CLASSE_CORES, template=PLOTLY_TEMPLATE,
+                           title="Violin + Box")
+            st.plotly_chart(vg, use_container_width=True)
+
+        # Testes Estatísticos ------------------------------------------
+        st.markdown("#### Testes estatísticos")
+        if len(grupos) == 2:
+            t_stat, p_val = stats.ttest_ind(*grupos, equal_var=False)
+            st.write(f"**t‑Student (duas amostras, variâncias não iguais)** → *t* = {t_stat:.4f}, *p* = {p_val:.4f}")
+            # AIC simples a partir do RSS do modelo reduzido vs completo
+            n1, n2 = len(grupos[0]), len(grupos[1])
+            rss = sum((grupos[0] - grupos[0].mean())**2) + sum((grupos[1] - grupos[1].mean())**2)
+            n = n1 + n2
+            k = 2  # média1, média2
+            aic = n * np.log(rss / n) + 2 * k
+            st.write(f"AIC aproximado do modelo de 2 médias: {aic:.2f}")
+        else:
+            f_stat, p_anova = stats.f_oneway(*grupos)
+            st.write(f"**ANOVA** → *F* = {f_stat:.4f}, *p* = {p_anova:.4f}")
+        # teste não paramétrico
+        if len(grupos) >= 2:
+            h_stat, p_kw = stats.kruskal(*grupos)
+            st.write(f"**Kruskal‑Wallis** (não paramétrico) → *H* = {h_stat:.4f}, *p* = {p_kw:.4f}")
+
+        # Resumo --------------------------------------------------------
+        resumo = dv.groupby(grp)[est].agg(n="count", média="mean", mediana="median",
+                                          mín="min", máx="max", desvio="std").round(2).reset_index()
+        st.dataframe(resumo, use_container_width=True)
+
 
 # ───────────────────────── Função ANOVA ─────────────────────────
 def analise_estatistica_variavel(grp):
@@ -180,6 +212,84 @@ metodos=sorted(df['Método'].unique())
 classes=sorted(df['Classe'].unique())
 variaveis=sorted(df['Variável'].unique())
 estat_cols=[c for c in df.columns if c not in ['Método','Classe','Variável']]
+
+with st.sidebar:
+    st.markdown("---")
+    met_sel=st.multiselect("Métodos:",metodos,default=metodos)
+    cls_sel=st.multiselect("Classes:",classes,default=classes)
+    var_sel=st.multiselect("Variáveis:",variaveis,default=variaveis)
+    est_sel=st.multiselect("Estatísticas:",estat_cols,default=[estat_cols[0]])
+    view_mode=st.radio("Visualização:",["Escala Real","Normalizado","Ambos"],index=0)
+
+# aplica filtro ----------------------------------------------------------
+
+df_filt = df[(df["Método"].isin(met_sel)) &
+             (df["Classe"].isin(cls_sel)) &
+             (df["Variável"].isin(var_sel))]
+
+if df_filt.empty:
+    st.warning("Filtros retornaram zero linhas.")
+    st.stop()
+
+# Normalização -----------------------------------------------------------
+if view_mode in ["Normalizado", "Ambos"]:
+    df_norm = normalizar_df(df_filt, estat_cols)
+else:
+    df_norm = pd.DataFrame()
+
+# ───────────────────────── Layout em Abas ─────────────────────────
+aba_metricas, aba_univ, aba_stats = st.tabs(["📊 Métricas", "🏷️ Univariadas", "📐 Estatísticas"])
+
+# Aba Métricas -----------------------------------------------------------
+with aba_metricas:
+    metodo_radio = st.radio("Filtrar método:", ["Todos"] + met_sel, horizontal=True)
+    for est in est_sel:
+        st.header(f"Estatística: {est}")
+        for mode, data in [("Escala Real", df_filt), ("Normalizado", df_norm)]:
+            if view_mode in [mode, "Ambos"] and not data.empty:
+                st.subheader(mode)
+                col1, col2 = st.columns(2)
+                with col1:
+                    d = data if metodo_radio == "Todos" else data[data["Método"] == metodo_radio]
+                    st.plotly_chart(plot_barras(d, est), use_container_width=True)
+                with col2:
+                    d = data if metodo_radio == "Todos" else data[data["Método"] == metodo_radio]
+                    st.plotly_chart(plot_radar(d, est, d["Método"].unique(), cls_sel), use_container_width=True)
+
+# Aba Univariadas --------------------------------------------------------
+with aba_univ:
+    # Escolha da variável primeiro
+    var_univ = st.selectbox("Variável:", variaveis, key="var_univ")
+    # Atualiza lista de classes presentes para a variável selecionada
+    cls_options = sorted(df_filt[df_filt["Variável"] == var_univ][grp_sel].unique())
+    cls_univ = st.multiselect("Clusters a incluir:", cls_options, default=cls_options)
+    estat_univ = st.selectbox("Estatística:", estat_cols, key="estat_univ")
+
+    # Filtra dataframe para a variável + classes escolhidas
+    df_uni = df_filt[(df_filt["Variável"] == var_univ) & (df_filt[grp_sel].isin(cls_univ))]
+
+    if df_uni.empty:
+        st.warning("Nada para mostrar – verifique filtros de classe.")
+    else:
+        plot_univariadas(df_uni, estat_univ, grp_sel)
+
+# Aba Estatísticas -------------------------------------------------------
+with aba_stats:
+    analise_estatistica_variavel(grp_sel)
+
+# ───────────────────────── Tabelas e Download ---------------------------
+
+st.markdown("---")
+st.subheader("Tabelas resumidas (clusters x variáveis)")
+
+for est in est_sel:
+    st.markdown(f"### {est.capitalize()}")
+    pivot = df_filt.pivot_table(index="Classe", columns="Variável", values=est)
+    st.dataframe(pivot, use_container_width=True)
+
+# CSV filtrado completo --------------------------------------------------
+csv_bytes = df_filt.to_csv(index=False).encode()
+st.download_button("⬇️ Baixar CSV filtrado", csv_bytes, file_name="metricas_filtradas.csv")
 
 with st.sidebar:
     st.markdown("---")
