@@ -497,42 +497,30 @@ with aba_stats:
         cls_sel_pca = st.multiselect("Clusters (PCA):", cls_opts, default=cls_opts, key="cls_pca")
         df_met = df_met[df_met["Classe"].isin(cls_sel_pca)].reset_index(drop=True)
 
-        # 2.1 PCA ---------------------------------------------------- ----------------------------------------------------
-        metodo_pca = st.selectbox("Método de cluster:", sorted(df_ana["Método"].unique()), key="metodo_pca")
-        df_met = df_ana[df_ana["Método"] == metodo_pca].copy()
-
-        # seleção de clusters válidos
-        if "Classe" not in df_met.columns:
-            st.error("Arquivo não contém coluna 'Classe' – impossível agrupar clusters.")
-            st.stop()
-        cls_opts = sorted(df_met["Classe"].unique())
-        cls_sel_pca = st.multiselect("Clusters (PCA):", cls_opts, default=cls_opts, key="cls_pca")
-        df_met = df_met[df_met["Classe"].isin(cls_sel_pca)].reset_index(drop=True)
-
-        estat_cols_ana = [c for c in df_ana.columns if c not in ["Método", "Classe", "Variável"]]
+        # 2.1 PCA ----------------------------------------------------
+        estat_cols_ana = [c for c in df_ana.columns if c not in ["Variável"] + GROUP_COLS]
         if not estat_cols_ana:
             st.error("Nenhuma coluna numérica disponível para PCA no arquivo selecionado."); st.stop()
         stat_col = st.selectbox("Estatística PCA:", estat_cols_ana, key="stat_pca")
 
-        # Pivot em formato largo ------------------------------------------------
+        # Pivot em formato largo (uma linha por observação) --------
         wide = df_met.pivot_table(index=df_met.index, columns="Variável", values=stat_col)
         vars_disp = [v for v in PCA_VARS if v in wide.columns]
         wide = wide[vars_disp].dropna(how="any")
         if len(vars_disp) < 2 or wide.shape[0] < 2:
             st.warning("Dados insuficientes para PCA"); st.stop()
 
-        # Executa PCA -----------------------------------------------------------
         X_std = StandardScaler().fit_transform(wide)
-        pca = PCA(n_components=3).fit(X_std)
-        pcs = pca.transform(X_std)
-        pc_df = pd.DataFrame(pcs, columns=["PC1", "PC2", "PC3"], index=wide.index)
+        pca   = PCA(n_components=3).fit(X_std)
+        pcs   = pca.transform(X_std)
+        pc_df = pd.DataFrame(pcs, columns=["PC1","PC2","PC3"], index=wide.index)
         pc_df["Classe"] = df_met.loc[wide.index, "Classe"].values
 
         st.write(f"PC1 explica {pca.explained_variance_ratio_[0]:.1%}; PC2 {pca.explained_variance_ratio_[1]:.1%}")
         st.plotly_chart(px.scatter(pc_df, x="PC1", y="PC2", color="Classe", template=PLOTLY_TEMPLATE,
                                    color_discrete_map=CLASSE_CORES, title="PCA – PC1×PC2"), use_container_width=True)
 
-        # Pairwise em PC1 -------------------------------------------------------
+        # Pairwise em PC1 ------------------------------------------ -------------------------------------------------------
         corr_pca = st.radio("Correção múltiplos testes (PC1):", ["bonferroni", "fdr_bh", "nenhuma"], key="corr_pca")
         meth_corr = None if corr_pca == "nenhuma" else corr_pca
         mat_pc1 = pairwise_t_matrix(pc_df, "Classe", "PC1", meth_corr)
