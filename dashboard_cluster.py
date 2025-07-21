@@ -473,6 +473,20 @@ with aba_stats:
         st.dataframe(tab.style.format({"p_value": "{:.3e}"}), use_container_width=True)
 
     # ---------- 2) t‑Student pairwise + PCA -------------------------
+   with aba_stats:
+    tab_global, tab_t = st.tabs(["Testes globais", "t-Student pairwise"])
+
+    # ---------- 1) Testes globais -----------------------------------
+    with tab_global:
+        estat_ref = est_sel[0]
+        st.subheader(f"Resumo por cluster – {estat_ref}")
+        grp_ok = grp_sel if grp_sel in df_filt.columns else "Classe"
+        df_clean = filtrar_outliers_iqr(df_filt, estat_ref, ["Variável", grp_ok])
+        tab = quadro_resumo_long(df_clean, grp_ok, var_sel, estat_ref)
+        st.caption(f"Outliers removidos: {len(df_filt) - len(df_clean)} linhas")
+        st.dataframe(tab.style.format({"p_value": "{:.3e}"}), use_container_width=True)
+
+    # ---------- 2) t‑Student pairwise + PCA -------------------------
     with tab_t:
         # =================== SELEÇÃO DE MÉTODO/CLUSTER =====================
         metodo_pca = st.selectbox("Algoritmo de cluster:", GROUP_COLS, key="metodo_pca")
@@ -484,7 +498,21 @@ with aba_stats:
         df_met = df_ana.copy()
         df_met["Classe"] = df_met[metodo_pca]
 
-        # escolha de clusters ------------------------------------------------
+        # escolha de clustersmetodo_pca = st.selectbox("Algoritmo de cluster:", GROUP_COLS, key="metodo_pca")
+        if metodo_pca not in df_ana.columns:
+            st.error(f"Coluna '{metodo_pca}' não encontrada no arquivo selecionado.")
+            st.stop()
+
+        # cria coluna 'Classe' com o rótulo do algoritmo escolhido
+        df_met = df_ana.copy()
+        df_met["Classe"] = df_met[metodo_pca]
+
+        # ------------ escolha de clusters -----------------------------
+        cls_opts = sorted(df_met["Classe"].dropna().unique())
+        cls_sel_pca = st.multiselect("Clusters (PCA):", cls_opts, default=cls_opts, key="cls_pca")
+        df_met = df_met[df_met["Classe"].isin(cls_sel_pca)].reset_index(drop=True)
+
+        # ========================== 2.1 PCA ================================ ------------------------------------------------
         cls_opts = sorted(df_met["Classe"].dropna().unique())
         cls_sel_pca = st.multiselect("Clusters (PCA):", cls_opts, default=cls_opts, key="cls_pca")
         df_met = df_met[df_met["Classe"].isin(cls_sel_pca)].reset_index(drop=True)
@@ -497,7 +525,8 @@ with aba_stats:
         stat_col = st.selectbox("Estatística PCA:", estat_cols_ana, key="stat_pca")
 
         # wide: linha = observação, colunas = variáveis do conjunto PCA_VARS
-        wide = df_met.pivot_table(index=df_met.index, columns="Variável", values=stat_col)
+        wide = df_met.pivot_table(index=df_met.index, columns="Variável", values=stat_col)wide = (df_met.reset_index()
+                .pivot_table(index='index', columns='Variável', values=stat_col))
         vars_disp = [v for v in PCA_VARS if v in wide.columns]
         wide = wide[vars_disp].dropna(how="any")
         if len(vars_disp) < 2 or wide.shape[0] < 2:
