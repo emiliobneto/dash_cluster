@@ -505,10 +505,12 @@ with aba_stats:
 
         # Formato wide: linha = observação, colunas = variáveis em PCA_VARS
         wide = (
-            df_met.reset_index()
-                  .pivot_table(index="index", columns="Variável", values=stat_col)
+            df_met                         # df_ana + coluna "Classe"
+              .assign(obs_id=lambda d: d.index)   # cria coluna segura
+              .pivot_table(index="obs_id",        # usa obs_id em vez de "index"
+                           columns="Variável",
+                           values=stat_col)
         )
-
         vars_disp = [v for v in PCA_VARS if v in wide.columns]
         wide = wide[vars_disp].dropna(how="any")
         if len(vars_disp) < 2 or wide.shape[0] < 2:
