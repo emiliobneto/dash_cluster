@@ -453,116 +453,72 @@ with aba_univ:
     
 # Aba Estatísticas -------------------------------------------------------
 with aba_stats:
-    # ---------------- tabs internas ----------------
-    tab_global, tab_t = st.tabs(["Testes globais", "t-Student pairwise"])
+    tab_global, tab_t = st.tabs(["Testes globais","t-Student pairwise"])
 
-    # ---------- 1) Quadro global (ANOVA/Kruskal) ----------
+    # ---------- 1) Testes globais -----------------------------------
     with tab_global:
-        estat_ref = est_sel[0]          # primeira estatística escolhida
+        estat_ref = est_sel[0]
         st.subheader(f"Resumo por cluster – {estat_ref}")
-
         grp_ok = grp_sel if grp_sel in df_filt.columns else "Classe"
         df_clean = filtrar_outliers_iqr(df_filt, estat_ref, ["Variável", grp_ok])
-        
-        tabela_resumo = quadro_resumo_long(
-            df_clean, grp_ok, var_sel, estat_ref
-        )
-        st.caption(f"Outliers removidos pelo critério IQR×1,5 antes dos testes (n = {len(df_filt)-len(df_clean)})")
-        st.dataframe(
-            tabela_resumo.style.format({"p_value": "{:.3e}"}),
-            use_container_width=True
-        )
-        with st.expander("Legenda de significância (p-value)"):
-            st.markdown(
-            """
-| Estrelas | p ≤ | Interpretação |
-|:---:|:---:|:---|
-| *** | 0.001 | diferença **muito** significativa |
-| **  | 0.01  | diferença **significativa** |
-| *   | 0.05  | diferença moderada |
-| ns  | > 0.05 | sem diferença significativa |
-            """
-        )
+        tab = quadro_resumo_long(df_clean, grp_ok, var_sel, estat_ref)
+        st.caption(f"Outliers removidos: {len(df_filt)-len(df_clean)} linhas")
+        st.dataframe(tab.style.format({"p_value":"{:.3e}"}), use_container_width=True)
 
-# ---------- 2) Matriz pairwise t-Student ----------
-# ─── 0) parâmetros fixos ───
-PCA_VARS = [
-    "comp_res", "outros_usos", "fator_com",
-    "densidade_hec_norm", "mobilidade_norm", "equipamentos_norm",
-    "a_vl_m2_construcao_norm", "comp_res_norm",
-    "outros_usos_norm", "fator_com_norm"
-]
+    # ---------- 2) t-Student pairwise + PCA -------------------------
+    with tab_t:
+        # 2.1 PCA ----------------------------------------------------
+        metodo_pca = st.selectbox("Método de cluster:", GROUP_COLS, key="metodo_pca")
+        df_met = df_ana[df_ana["Método"] == metodo_pca]
+        cls_opts = sorted(df_met["Classe"].unique())
+        cls_sel_pca = st.multiselect("Clusters (PCA):", cls_opts, default=cls_opts, key="cls_pca")
+        df_met = df_met[df_met["Classe"].isin(cls_sel_pca)].reset_index(drop=True)
 
-# ─────────────────────────────────────────────────────────────────
-# ---- PCA dedicado à aba "t-Student pairwise" --------------------------
-PCA_VARS = [
-    "comp_res", "outros_usos", "fator_com",
-    "densidade_hec_norm", "mobilidade_norm", "equipamentos_norm",
-    "a_vl_m2_construcao_norm", "comp_res_norm",
-    "outros_usos_norm", "fator_com_norm"
-]
+        estat_cols_ana = [c for c in df_ana.columns if c not in ["Método","Classe","Variável"]]
+        stat_col = st.selectbox("Estatística PCA:", estat_cols_ana, key="stat_pca")
 
-with tab_t:
+        wide = df_met.pivot_table(index="index", columns="Variável", values=stat_col)
+        avail = [v for v in PCA_VARS if v in wide.columns]
+        wide = wide[avail].dropna()
+        if len(avail) < 2 or wide.shape[0] < 2:
+            st.warning("Dados insuficientes para PCA"); st.stop()
+        X_std = StandardScaler().fit_transform(wide)
+        pca    = PCA(n_components=3).fit(X_std)
+        pcs    = pca.transform(X_std)
+        pc_df  = pd.DataFrame(pcs, columns=["PC1","PC2","PC3"], index=wide.index)
+        pc_df["Classe"] = df_met.loc[wide.index, "Classe"].values
 
-    # ─── 2.1 PCA + testes em PC1 ──────────────────────────────────
-    metodo_pca = st.selectbox("Método de cluster:", GROUP_COLS, key="metodo_pca")
+        st.write(f"PC1 explica {pca.explained_variance_ratio_[0]:.1%}; PC2 {pca.explained_variance_ratio_[1]:.1%}")
+        st.plotly_chart(px.scatter(pc_df, x="PC1", y="PC2", color="Classe", color_discrete_map=CLASSE_CORES,
+                                   template=PLOTLY_TEMPLATE, title="PCA – PC1×PC2"), use_container_width=True)
 
-    df_met = df_ana[df_ana["Método"] == metodo_pca]
-    cls_opts = sorted(df_met["Classe"].unique())
-    cls_sel  = st.multiselect("Clusters a incluir (PCA):", cls_opts, default=cls_opts, key="cls_sel_pca")
-    df_met   = df_met[df_met["Classe"].isin(cls_sel)]
+        # pairwise em PC1
+        corr_pca = st.radio("Correção múltiplos testes (PC1):", ["bonferroni","fdr_bh","nenhuma"], key="corr_pca")
+        meth_corr = None if corr_pca=="nenhuma" else corr_pca
+        mat_pc1 = pairwise_t_matrix(pc_df, "Classe", "PC1", meth_corr)
+        view_pca = st.radio("Visualização PC1:", ["Tabela","Heatmap"], key="view_pc1")
+        if view_pca == "Tabela":
+            st.dataframe(mat_pc1.style.format("{:.3e}"), use_container_width=True)
+        else:
+            st.plotly_chart(px.imshow(mat_pc1, text_auto=".2e", zmin=0, zmax=0.05,
+                                      color_continuous_scale="RdBu_r", title="Pairwise PC1"), use_container_width=True)
 
-    # estatística usada no PCA
-    estat_cols_ana = [c for c in df_ana.columns if c not in ["Método","Classe","Variável"]]
-    stat_col = st.selectbox("Estatística usada no PCA:", estat_cols_ana, key="pca_stat")
+        st.markdown("---")
 
-    # pivot wide
-    wide = df_met.pivot_table(index=df_met.index, columns="Variável", values=stat_col)
-    wide["Classe"] = df_met["Classe"].values          # anexa rótulo de cluster
+        # 2.2 pairwise por variável ----------------------------------
+        var_ana = sorted(df_ana["Variável"].unique())
+        var_pair = st.selectbox("Variável:", var_ana, key="var_pair")
+        estat_pair = st.selectbox("Estatística:", estat_cols_ana, key="estat_pair")
+        corr_var = st.radio("Correção múltiplos testes:", ["bonferroni","fdr_bh","nenhuma"], key="corr_var")
+        meth_var = None if corr_var == "nenhuma" else corr_var
 
-    # mantém só variáveis existentes
-    avail_vars = [v for v in PCA_VARS if v in wide.columns]
-    wide = wide[avail_vars + ["Classe"]].dropna()     # elimina linhas com NaN
+        df_pair = df_ana[df_ana["Variável"] == var_pair]
+        grp_ok  = grp_sel if grp_sel in df_pair.columns else "Classe"
+        mat_var = pairwise_t_matrix(df_pair, grp_ok, estat_pair, meth_var)
 
-    if len(avail_vars) < 2 or wide.shape[0] < 2:
-        st.warning("Dados insuficientes após filtros.")
-        st.stop()
-
-    X_std = StandardScaler().fit_transform(wide[avail_vars])
-    pca   = PCA(n_components=3).fit(X_std)
-    scores = pca.transform(X_std)
-
-    pc_df = pd.DataFrame(scores, index=wide.index, columns=["PC1","PC2","PC3"])
-    pc_df["Classe"] = wide["Classe"].values
-    # … resto (scatter, ANOVA, pairwise em PC1) inalterado …
-
-    # ─── 2.2 Matriz pairwise por variável ─────────────────────────
-    var_pair = st.selectbox("Variável:",  var_sel_ana, key="pair_var")
-    estat_pair = st.selectbox("Estatística:", estat_cols_ana, key="pair_est")
-    # df_pair agora também de df_ana
-    df_pair = df_ana[df_ana["Variável"] == var_pair]
-    grp_ok  = grp_sel if grp_sel in df_pair.columns else "Classe"
-
-    mat = pairwise_t_matrix(df_pair, grp_ok, estat_pair, method)
-
-    st.markdown(f"""
-**Como ler**  
-* Linhas/colunas = clusters em **{grp_ok}**  
-* Célula = p-value do t-Student (Welch) entre o par de clusters  
-* Correção = **{corr_label.upper()}**  
-* NaN → menos de 2 observações em algum cluster  
-* Significativo se **p ≤ 0,05** (após correção)
-""")
-
-    view_var = st.radio("Visualização:", ["Tabela", "Heatmap"],
-                        horizontal=True, key="view_var")
-    if view_var == "Tabela":
-        st.dataframe(mat.style.format("{:.3e}"), use_container_width=True)
-    else:
-        fig = px.imshow(
-            mat, text_auto=".2e", zmin=0, zmax=0.05,
-            color_continuous_scale="RdBu_r",
-            aspect="auto",
-            title=f"p-values t-Student – {var_pair} ({estat_pair})"
-        )
-        st.plotly_chart(fig, use_container_width=True)
+        view_var = st.radio("Visualização matriz:", ["Tabela", "Heatmap"], key="view_var")
+        if view_var == "Tabela":
+            st.dataframe(mat_var.style.format("{:.3e}"), use_container_width=True)
+        else:
+            st.plotly_chart(px.imshow(mat_var, text_auto=".2e", zmin=0, zmax=0.05,
+                                      color_continuous_scale="RdBu_r", title=f"Pairwise – {var_pair}"), use_container_width=True)
