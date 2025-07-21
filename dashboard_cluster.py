@@ -164,6 +164,23 @@ def pairwise_t_matrix(df: pd.DataFrame,
     np.fill_diagonal(mat.values, np.nan)
     return mat
 
+def filtrar_outliers_iqr(df: pd.DataFrame,
+                         valor_col: str,
+                         agrupadores: list[str]) -> pd.DataFrame:
+    """
+    Remove outliers usando a regra IQR×1,5.
+    É aplicada independentemente para cada combinação em `agrupadores`.
+    """
+    def _apply(gr):
+        q1 = gr[valor_col].quantile(0.25)
+        q3 = gr[valor_col].quantile(0.75)
+        iqr = q3 - q1
+        lo, hi = q1 - 1.5*iqr, q3 + 1.5*iqr
+        return gr[(gr[valor_col] >= lo) & (gr[valor_col] <= hi)]
+
+    return (df.groupby(agrupadores, group_keys=False)
+              .apply(_apply)
+              .reset_index(drop=True))
 # ───────────────────────── Funções de gráfico ─────────────────────────
 def plot_barras(df,est):
     fig=px.bar(df,x='Variável',y=est,color='Classe',color_discrete_map=CLASSE_CORES,
@@ -448,25 +465,23 @@ with aba_stats:
         estat_ref = est_sel[0]          # primeira estatística escolhida
         st.subheader(f"Resumo por cluster – {estat_ref}")
 
+        grp_ok = grp_sel if grp_sel in df_filt.columns else "Classe"
+        df_clean = filtrar_outliers_iqr(df_filt, estat_ref, ["Variável", grp_ok])
+        
         tabela_resumo = quadro_resumo_long(
-            df_filt, grp_sel if grp_sel in df_filt.columns else "Classe",
-            var_sel, estat_ref
+            df_clean, grp_ok, var_sel, estat_ref
         )
+        st.caption(f"Outliers removidos pelo critério IQR×1,5 antes dos testes (n = {len(df_filt)-len(df_clean)})")
         st.dataframe(
             tabela_resumo.style.format({"p_value": "{:.3e}"}),
             use_container_width=True
         )
         with st.expander("Legenda de significância (p-value)"):
-            st.markdown(
-                """
-| Estrelas | p ≤ | Interpretação |
-|:---:|:---:|:---|
-| *** | 0.001 | diferença **muito** significativa |
-| **  | 0.01  | diferença **significativa** |
-| *   | 0.05  | diferença moderada |
-| ns  | > 0.05 | sem diferença significativa |
-                """
-            )
+            st.markdown("""
+#### Como interpretar
+* ***p ≤ 0.05*** – rejeitamos H₀: pelo menos dois clusters diferem na estatística analisada.
+* ***p > 0.05*** – não há evidência suficiente para afirmar diferença entre clusters.
+""")
 
     # ---------- 2) Matriz pairwise t-Student ----------
     with tab_t:
