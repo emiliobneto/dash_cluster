@@ -473,7 +473,7 @@ with aba_stats:
         st.dataframe(tab.style.format({"p_value": "{:.3e}"}), use_container_width=True)
 
     # ---------- 2) t‑Student pairwise + PCA -------------------------
-   with aba_stats:
+with aba_stats:
     tab_global, tab_t = st.tabs(["Testes globais", "t-Student pairwise"])
 
     # ---------- 1) Testes globais -----------------------------------
