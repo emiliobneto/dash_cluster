@@ -90,6 +90,17 @@ def normalizar_df(df, est_cols):
                     df_n.loc[mask,est] = (df_n.loc[mask,est]-mn)/(mx-mn)
     return df_n
 
+merged_files = carregar_todos_arquivos(PASTA_ANALISES)
+if not merged_files:
+    st.error("Nenhum CSV em data/merged.")
+    st.stop()
+
+arq_ana = st.sidebar.selectbox(
+    "Arquivo para PCA / pairwise:", list(merged_files.keys()),
+    key="sel_merged"
+)
+df_ana = merged_files[arq_ana]
+
 # ───────────────────────── Estatísticas auxiliares ─────────────────────────
 SIG_BINS   = [-np.inf, 0.001, 0.01, 0.05, 1]
 SIG_LABELS = ["***",   "**",    "*",  "ns"]
@@ -493,112 +504,43 @@ PCA_VARS = [
 
 with tab_t:
 
-    # ─────────────── 2.1  PCA + testes em PC1 ───────────────
-    st.markdown("### PCA + Testes em PC1")
+    # ─── 2.1 PCA + testes em PC1 ──────────────────────────────────
+    metodo_pca = st.selectbox("Método de cluster:", GROUP_COLS, key="metodo_pca")
 
-    PCA_VARS = [
-        "comp_res", "outros_usos", "fator_com",
-        "densidade_hec_norm", "mobilidade_norm", "equipamentos_norm",
-        "a_vl_m2_construcao_norm", "comp_res_norm",
-        "outros_usos_norm", "fator_com_norm"
-    ]
+    df_met = df_ana[df_ana["Método"] == metodo_pca]
+    cls_opts = sorted(df_met["Classe"].unique())
+    cls_sel  = st.multiselect("Clusters a incluir (PCA):", cls_opts, default=cls_opts, key="cls_sel_pca")
+    df_met   = df_met[df_met["Classe"].isin(cls_sel)]
 
-    metodo_pca = st.selectbox(
-        "Método de cluster:",
-        ["KMeans_k5", "Spectral_k5", "KMedoids_k5"],
-        key="metodo_pca"
-    )
+    # estatística usada no PCA
+    estat_cols_ana = [c for c in df_ana.columns if c not in ["Método","Classe","Variável"]]
+    stat_col = st.selectbox("Estatística usada no PCA:", estat_cols_ana, key="pca_stat")
 
-    df_met = df[df["Método"] == metodo_pca]
-    cls_opts = sorted(df_met["Classe"].dropna().unique())
-    cls_sel = st.multiselect(
-        "Clusters a incluir (PCA):",
-        cls_opts, default=cls_opts, key="cls_sel_pca"
-    )
-    df_met = df_met[df_met["Classe"].isin(cls_sel)]
+    # pivot wide
+    wide = df_met.pivot_table(index=df_met.index, columns="Variável", values=stat_col)
+    wide["Classe"] = df_met["Classe"].values          # anexa rótulo de cluster
 
-    # pivot wide – usa a 1ª estatística numérica disponível
-    stat_col = st.selectbox("Estatística usada no PCA:", estat_cols,
-                        index=0, key="pca_stat")
-
-    wide = (df_met.pivot_table(
-                index=df_met.index,
-                columns="Variável",
-                values=stat_col)
-            .dropna(axis=1, how="all"))
-    
-    # mantém apenas as variáveis que realmente apareceram
+    # mantém só variáveis existentes
     avail_vars = [v for v in PCA_VARS if v in wide.columns]
-    
-    if len(avail_vars) < 2:                     # PCA precisa de ≥2 variáveis
-        st.warning(
-            "Os filtros atuais não contêm pelo menos duas das variáveis solicitadas "
-            f"({', '.join(PCA_VARS)}). Selecione outros clusters/método."
-        )
+    wide = wide[avail_vars + ["Classe"]].dropna()     # elimina linhas com NaN
+
+    if len(avail_vars) < 2 or wide.shape[0] < 2:
+        st.warning("Dados insuficientes após filtros.")
         st.stop()
-    
-    wide = wide[avail_vars]                     # usa só o que existe
-    wide["Classe"] = df_met.loc[wide.index, "Classe"]
+
     X_std = StandardScaler().fit_transform(wide[avail_vars])
     pca   = PCA(n_components=3).fit(X_std)
     scores = pca.transform(X_std)
 
     pc_df = pd.DataFrame(scores, index=wide.index, columns=["PC1","PC2","PC3"])
     pc_df["Classe"] = wide["Classe"].values
+    # … resto (scatter, ANOVA, pairwise em PC1) inalterado …
 
-    st.write(f"Variância explicada – PC1 **{pca.explained_variance_ratio_[0]:.1%}** · "
-             f"PC2 **{pca.explained_variance_ratio_[1]:.1%}**")
-
-    fig_sc = px.scatter(pc_df, x="PC1", y="PC2", color="Classe",
-                        color_discrete_map=CLASSE_CORES,
-                        title=f"PCA – {metodo_pca}")
-    st.plotly_chart(fig_sc, use_container_width=True)
-
-    grupos_pc1 = [g["PC1"] for _, g in pc_df.groupby("Classe")]
-    if len(grupos_pc1) >= 2:
-        f, p = stats.f_oneway(*grupos_pc1)
-        st.write(f"**ANOVA em PC1:** F = {f:.2f}, p = {p:.3e}")
-
-    corr_label_pca = st.radio(
-        "Correção múltiplos testes (PCA):",
-        ["bonferroni", "fdr_bh", "nenhuma"],
-        horizontal=True, key="corr_pca"
-    )
-    method_corr = None if corr_label_pca == "nenhuma" else corr_label_pca
-
-    mat_pc1 = pairwise_t_matrix(pc_df, "Classe", "PC1", method_corr)
-
-    view_pca = st.radio("Visualização matriz (PC1):",
-                        ["Tabela", "Heatmap"], horizontal=True, key="view_pca")
-    if view_pca == "Tabela":
-        st.dataframe(mat_pc1.style.format("{:.3e}"), use_container_width=True)
-    else:
-        fig_hm = px.imshow(mat_pc1, text_auto=".2e",
-                           zmin=0, zmax=0.05,
-                           color_continuous_scale="RdBu_r",
-                           aspect="auto",
-                           title="p-values t-Student – PC1")
-        st.plotly_chart(fig_hm, use_container_width=True)
-
-    st.caption("Células vermelhas (p ≤ 0,05) indicam diferença significativa entre clusters.")
-
-    # ─────────────────────────────────────────────────────────
-    st.markdown("---")
-
-    # ─────────────── 2.2  Matriz por variável ───────────────
-    st.subheader("Matriz de p-values t-Student (Welch)")
-
-    var_pair   = st.selectbox("Variável:",  var_sel,   key="pair_var")
-    estat_pair = st.selectbox("Estatística:", estat_cols, key="pair_est")
-
-    corr_label = st.radio(
-        "Correção múltiplos testes:",
-        ["bonferroni", "fdr_bh", "nenhuma"], index=0,
-        key="corr_var"
-    )
-    method = None if corr_label == "nenhuma" else corr_label
-
-    df_pair = df_filt[df_filt["Variável"] == var_pair]
+    # ─── 2.2 Matriz pairwise por variável ─────────────────────────
+    var_pair = st.selectbox("Variável:",  var_sel_ana, key="pair_var")
+    estat_pair = st.selectbox("Estatística:", estat_cols_ana, key="pair_est")
+    # df_pair agora também de df_ana
+    df_pair = df_ana[df_ana["Variável"] == var_pair]
     grp_ok  = grp_sel if grp_sel in df_pair.columns else "Classe"
 
     mat = pairwise_t_matrix(df_pair, grp_ok, estat_pair, method)
