@@ -8,6 +8,8 @@ from pathlib import Path
 import os
 from itertools import combinations
 import statsmodels.stats.multitest as smm
+from sklearn.preprocessing import StandardScaler 
+from sklearn.decomposition import PCA
 
 # ───────────────────────── Configuração global ─────────────────────────
 st.set_page_config(
