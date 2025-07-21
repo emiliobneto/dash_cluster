@@ -133,35 +133,41 @@ def quadro_resumo_long(df_long: pd.DataFrame,
 
     return pd.DataFrame(linhas)
 
-def pairwise_t_matrix(df: pd.DataFrame,
-                  grupo_col: str,
-                  var: str,
-                  estat_col: str,
-                  method: str = "bonferroni") -> pd.DataFrame:
+def pairwise_t_matrix(
+        df: pd.DataFrame,
+        grupo_col: str,
+        estat_col: str,
+        method: str = "bonferroni"
+    ) -> pd.DataFrame:
     """
-    Devolve DataFrame (clusters × clusters) com p-values t-Student.
-    `method`: bonferroni | fdr_bh | None
+    p-values t-Student (Welch) entre todos os pares de clusters.
+    • Descarta clusters com < 2 observações
+    • Ajusta múltiplos testes: bonferroni | fdr_bh | None
     """
-    clusters = sorted(df[grupo_col].unique())
-    pvals, idx = [], []
+    # garante que só entram grupos “testáveis”
+    counts = df.groupby(grupo_col)[estat_col].count()
+    clusters = counts[counts >= 2].index.tolist()
 
+    # matriz (pré-preenchida) ────
+    mat = pd.DataFrame(np.nan, index=clusters, columns=clusters)
+
+    # coleta p-values
+    pvals, pairs = [], []
     for c1, c2 in combinations(clusters, 2):
         a = df.loc[df[grupo_col] == c1, estat_col].dropna()
         b = df.loc[df[grupo_col] == c2, estat_col].dropna()
-        if len(a) > 1 and len(b) > 1:
-            _, p = stats.ttest_ind(a, b, equal_var=False)
-            pvals.append(p)
-            idx.append((c1, c2))
+        t, p = stats.ttest_ind(a, b, equal_var=False)
+        pvals.append(p)
+        pairs.append((c1, c2))
 
-    # correção múltiplos testes
-    if method is not None and pvals:
+    # correção de múltiplos testes ────
+    if method and pvals:
         pvals = smm.multipletests(pvals, method=method)[1]
 
-    # monta matriz simétrica
-    mat = pd.DataFrame(index=clusters, columns=clusters, dtype=float)
-    for (c1, c2), p in zip(idx, pvals):
+    # preenche matriz simétrica
+    for (c1, c2), p in zip(pairs, pvals):
         mat.loc[c1, c2] = mat.loc[c2, c1] = p
-    np.fill_diagonal(mat.values, np.nan)
+
     return mat
 
 def filtrar_outliers_iqr(df: pd.DataFrame,
@@ -465,36 +471,47 @@ with aba_stats:
             """
         )
 
-    # ---------- 2) Matriz pairwise t-Student ----------
-    with tab_t:
-        st.subheader("Matriz de p-values t-Student")
-        var_pair = st.selectbox("Variável:", var_sel, key="pair_var")
-        estat_pair = st.selectbox("Estatística:", estat_cols, key="pair_est")
-        corr_method = st.radio(
-            "Correção múltiplos testes:",
-            ["bonferroni", "fdr_bh", "nenhuma"],
-            index=0
-        )
-        method = None if corr_method == "nenhuma" else corr_method
+# ---------- 2) Matriz pairwise t-Student ----------
+with tab_t:
+    st.subheader("Matriz de p-values t-Student (Welch)")
 
-        mat = pairwise_t_matrix(
-            df_filt[df_filt["Variável"] == var_pair],
-            grp_sel if grp_sel in df_filt.columns else "Classe",
-            var_pair,
-            estat_pair,
-            method
-        )
+    # ① Escolhas do usuário
+    var_pair   = st.selectbox("Variável:",     var_sel,   key="pair_var")
+    estat_pair = st.selectbox("Estatística:",  estat_cols, key="pair_est")
+    corr_label = st.radio(
+        "Correção múltiplos testes:",
+        ["bonferroni", "fdr_bh", "nenhuma"], index=0
+    )
+    method = None if corr_label == "nenhuma" else corr_label
 
-        # escolha: mostrar como tabela ou heatmap
-        view = st.radio("Visualização:", ["Tabela", "Heatmap"], horizontal=True)
-        if view == "Tabela":
-            st.dataframe(mat.style.format("{:.3e}"), use_container_width=True)
-        else:
-            fig = px.imshow(
-                mat,
-                text_auto=".2e",
-                color_continuous_scale="RdBu_r",
-                aspect="auto",
-                title=f"p-values t-Student – {var_pair} ({estat_pair})"
-            )
-            st.plotly_chart(fig, use_container_width=True)
+    # ② Prepara dados ─ apenas valores da variável escolhida
+    df_pair = df_filt[df_filt["Variável"] == var_pair]
+    grp_ok  = grp_sel if grp_sel in df_pair.columns else "Classe"
+
+    # ③ Calcula matriz de p-values
+    mat = pairwise_t_matrix(df_pair, grp_ok, estat_pair, method)
+
+    # ④ Explicação / legenda
+    st.markdown(f"""
+**Como ler**  
+* Linhas/colunas = clusters em **{grp_ok}**  
+* Célula = p-value do t-Student (Welch) entre o par de clusters  
+* Correção escolhida = **{corr_label.upper()}**  
+* `NaN` → menos de 2 observações em algum cluster  
+* Consideramos significativo se **p ≤ 0,05** (após correção)
+""")
+
+    # ⑤ Tabela ou heatmap
+    view = st.radio("Visualização:", ["Tabela", "Heatmap"], horizontal=True)
+    if view == "Tabela":
+        st.dataframe(mat.style.format("{:.3e}"), use_container_width=True)
+    else:
+        fig = px.imshow(
+            mat,
+            text_auto=".2e",
+            zmin=0, zmax=0.05,                 # destaca p-values baixos
+            color_continuous_scale="RdBu_r",
+            aspect="auto",
+            title=f"p-values t-Student – {var_pair} ({estat_pair})"
+        )
+        st.plotly_chart(fig, use_container_width=True)
