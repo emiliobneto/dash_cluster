@@ -481,71 +481,89 @@ PCA_VARS = [
 ]
 
 # ─────────────────────────────────────────────────────────────────
+# ---- PCA dedicado à aba "t-Student pairwise" --------------------------
+PCA_VARS = [
+    "comp_res", "outros_usos", "fator_com",
+    "densidade_hec_norm", "mobilidade_norm", "equipamentos_norm",
+    "a_vl_m2_construcao_norm", "comp_res_norm",
+    "outros_usos_norm", "fator_com_norm"
+]
+
 with tab_t:
     st.markdown("### PCA + Testes em PC1")
 
-    # ① escolhas do usuário ─ método e clusters
-    metodo_pca = st.selectbox("Método de cluster:", ["KMeans_k5","Spectral_k5","KMedoids_k5"])
-    cls_opts   = sorted(df_filt[metodo_pca].dropna().unique())
-    cls_sel_pca = st.multiselect("Clusters a incluir:", cls_opts, default=cls_opts)
+    # ① Método (KMeans, Spectral ou KMedoids) ---------------------------
+    metodo_pca = st.selectbox(
+        "Método de cluster:",
+        ["KMeans_k5", "Spectral_k5", "KMedoids_k5"]
+    )
 
-    # ② filtra dataframe (observações × variáveis)
-    df_pca = df[
-        (df["Método"].isin(met_sel)) &                 # herda filtros da sidebar
-        (df[metodo_pca].isin(cls_sel_pca))
-    ]
+    # dataframe só desse método
+    df_met = df[df["Método"] == metodo_pca]
 
-    # pivot para formato wide: uma linha = observação
-    wide = (df_pca.pivot_table(index=["Observacao_ID"],   # troque pela PK real
+    # clusters disponíveis (coluna 'Classe')
+    cls_opts = sorted(df_met["Classe"].dropna().unique())
+    cls_sel  = st.multiselect("Clusters a incluir:", cls_opts, default=cls_opts)
+
+    # filtra clusters desejados
+    df_met = df_met[df_met["Classe"].isin(cls_sel)]
+
+    # ② formato wide: uma linha por observação -------------------------
+    # -> use o índice original se não houver um ID único
+    wide = (df_met.pivot_table(index=df_met.index,   # cada linha = observação
                                columns="Variável",
-                               values="média")            # ← ou estat_col desejado
-            [PCA_VARS]                                    # garante ordem das 10 vars
+                               values="média")       # troque se necessário
+            [PCA_VARS]
             .dropna())
-    # anexa coluna de cluster escolhida
-    wide[metodo_pca] = df_pca.drop_duplicates("Observacao_ID")\
-                             .set_index("Observacao_ID")[metodo_pca]
 
-    # ③ PCA
+    # anexa rótulo do cluster
+    wide["Classe"] = df_met.loc[wide.index, "Classe"]
+
+    # ③ PCA -------------------------------------------------------------
     from sklearn.preprocessing import StandardScaler
     from sklearn.decomposition import PCA
+
     X_std = StandardScaler().fit_transform(wide[PCA_VARS])
     pca   = PCA(n_components=3).fit(X_std)
     scores = pca.transform(X_std)
+
     pc_df = pd.DataFrame(scores, index=wide.index, columns=["PC1","PC2","PC3"])
-    pc_df[metodo_pca] = wide[metodo_pca].values
+    pc_df["Classe"] = wide["Classe"].values     # cluster rótulo
 
-    # ④ variância explicada
-    st.write(f"**Variância explicada:** PC1 {pca.explained_variance_ratio_[0]:.1%} · "
-             f"PC2 {pca.explained_variance_ratio_[1]:.1%} · "
-             f"PC3 {pca.explained_variance_ratio_[2]:.1%}")
+    st.write(f"Variância explicada – PC1: **{pca.explained_variance_ratio_[0]:.1%}**, "
+             f"PC2: **{pca.explained_variance_ratio_[1]:.1%}**")
 
-    # ⑤ scatter PC1 × PC2
-    fig_sc = px.scatter(pc_df, x="PC1", y="PC2", color=metodo_pca,
-                        color_discrete_map=CLASSE_CORES,
-                        title="PCA – PC1 × PC2")
-    st.plotly_chart(fig_sc, use_container_width=True)
+    # ④ Scatter PC1 × PC2 ----------------------------------------------
+    fig = px.scatter(pc_df, x="PC1", y="PC2", color="Classe",
+                     color_discrete_map=CLASSE_CORES,
+                     title=f"PCA – {metodo_pca}")
+    st.plotly_chart(fig, use_container_width=True)
 
-    # ⑥ ANOVA em PC1
-    grupos_pc1 = [g["PC1"] for _, g in pc_df.groupby(metodo_pca)]
+    # ⑤ ANOVA em PC1 ----------------------------------------------------
+    grupos_pc1 = [g["PC1"] for _, g in pc_df.groupby("Classe")]
     if len(grupos_pc1) >= 2:
         f, p = stats.f_oneway(*grupos_pc1)
-        st.write(f"**ANOVA em PC1:** F={f:.2f}, p={p:.3e}")
-        st.caption("p ≤ 0,05 → pelo menos dois clusters diferem no eixo PC1")
+        st.write(f"**ANOVA em PC1:** F = {f:.2f}, p = {p:.3e}")
 
-    # ⑦ matriz pair-wise em PC1  (reaproveita função pairwise_t_matrix)
-    view_pca = st.radio("Visualização matriz PC1:", ["Tabela", "Heatmap"], horizontal=True)
-    mat_pc1  = pairwise_t_matrix(pc_df, metodo_pca, "PC1", method="bonferroni")
+    # ⑥ Matriz pairwise t-Student em PC1 -------------------------------
+    corr_label = st.radio("Correção múltiplos testes:",
+                          ["bonferroni", "fdr_bh", "nenhuma"], horizontal=True)
+    method_corr = None if corr_label == "nenhuma" else corr_label
 
-    if view_pca == "Tabela":
+    mat_pc1 = pairwise_t_matrix(pc_df, "Classe", "PC1", method_corr)
+
+    view = st.radio("Visualização matriz:", ["Tabela", "Heatmap"], horizontal=True)
+    if view == "Tabela":
         st.dataframe(mat_pc1.style.format("{:.3e}"), use_container_width=True)
     else:
         fig_hm = px.imshow(mat_pc1, text_auto=".2e",
                            zmin=0, zmax=0.05,
                            color_continuous_scale="RdBu_r",
+                           aspect="auto",
                            title="p-values t-Student – PC1")
         st.plotly_chart(fig_hm, use_container_width=True)
 
-    st.markdown("---")   # separador visual antes da seção já existente
+    st.caption("Células vermelhas (p ≤ 0,05) indicam diferença significativa entre clusters.")
 
 with tab_t:
     st.subheader("Matriz de p-values t-Student (Welch)")
