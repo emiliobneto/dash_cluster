@@ -490,70 +490,73 @@ PCA_VARS = [
 ]
 
 with tab_t:
+
+    # ─────────────── 2.1  PCA + testes em PC1 ───────────────
     st.markdown("### PCA + Testes em PC1")
 
-    # ① Método (KMeans, Spectral ou KMedoids) ---------------------------
+    PCA_VARS = [
+        "comp_res", "outros_usos", "fator_com",
+        "densidade_hec_norm", "mobilidade_norm", "equipamentos_norm",
+        "a_vl_m2_construcao_norm", "comp_res_norm",
+        "outros_usos_norm", "fator_com_norm"
+    ]
+
     metodo_pca = st.selectbox(
         "Método de cluster:",
-        ["KMeans_k5", "Spectral_k5", "KMedoids_k5"]
+        ["KMeans_k5", "Spectral_k5", "KMedoids_k5"],
+        key="metodo_pca"
     )
 
-    # dataframe só desse método
     df_met = df[df["Método"] == metodo_pca]
-
-    # clusters disponíveis (coluna 'Classe')
     cls_opts = sorted(df_met["Classe"].dropna().unique())
-    cls_sel  = st.multiselect("Clusters a incluir:", cls_opts, default=cls_opts)
-
-    # filtra clusters desejados
+    cls_sel = st.multiselect(
+        "Clusters a incluir (PCA):",
+        cls_opts, default=cls_opts, key="cls_sel_pca"
+    )
     df_met = df_met[df_met["Classe"].isin(cls_sel)]
 
-    # ② formato wide: uma linha por observação -------------------------
-    # -> use o índice original se não houver um ID único
-    wide = (df_met.pivot_table(index=df_met.index,   # cada linha = observação
+    # pivot wide – usa a 1ª estatística numérica disponível
+    stat_col = estat_cols[0]                       # ou peça ao usuário
+    wide = (df_met.pivot_table(index=df_met.index,
                                columns="Variável",
-                               values="média")       # troque se necessário
-            [PCA_VARS]
-            .dropna())
-
-    # anexa rótulo do cluster
+                               values=stat_col)
+            [PCA_VARS].dropna())
     wide["Classe"] = df_met.loc[wide.index, "Classe"]
 
-    # ③ PCA -------------------------------------------------------------
     from sklearn.preprocessing import StandardScaler
     from sklearn.decomposition import PCA
-
     X_std = StandardScaler().fit_transform(wide[PCA_VARS])
     pca   = PCA(n_components=3).fit(X_std)
     scores = pca.transform(X_std)
 
     pc_df = pd.DataFrame(scores, index=wide.index, columns=["PC1","PC2","PC3"])
-    pc_df["Classe"] = wide["Classe"].values     # cluster rótulo
+    pc_df["Classe"] = wide["Classe"].values
 
-    st.write(f"Variância explicada – PC1: **{pca.explained_variance_ratio_[0]:.1%}**, "
-             f"PC2: **{pca.explained_variance_ratio_[1]:.1%}**")
+    st.write(f"Variância explicada – PC1 **{pca.explained_variance_ratio_[0]:.1%}** · "
+             f"PC2 **{pca.explained_variance_ratio_[1]:.1%}**")
 
-    # ④ Scatter PC1 × PC2 ----------------------------------------------
-    fig = px.scatter(pc_df, x="PC1", y="PC2", color="Classe",
-                     color_discrete_map=CLASSE_CORES,
-                     title=f"PCA – {metodo_pca}")
-    st.plotly_chart(fig, use_container_width=True)
+    fig_sc = px.scatter(pc_df, x="PC1", y="PC2", color="Classe",
+                        color_discrete_map=CLASSE_CORES,
+                        title=f"PCA – {metodo_pca}")
+    st.plotly_chart(fig_sc, use_container_width=True)
 
-    # ⑤ ANOVA em PC1 ----------------------------------------------------
     grupos_pc1 = [g["PC1"] for _, g in pc_df.groupby("Classe")]
     if len(grupos_pc1) >= 2:
         f, p = stats.f_oneway(*grupos_pc1)
         st.write(f"**ANOVA em PC1:** F = {f:.2f}, p = {p:.3e}")
 
-    # ⑥ Matriz pairwise t-Student em PC1 -------------------------------
-    corr_label = st.radio("Correção múltiplos testes:",
-                          ["bonferroni", "fdr_bh", "nenhuma"], horizontal=True)
-    method_corr = None if corr_label == "nenhuma" else corr_label
+    corr_label_pca = st.radio(
+        "Correção múltiplos testes (PCA):",
+        ["bonferroni", "fdr_bh", "nenhuma"],
+        horizontal=True, key="corr_pca"
+    )
+    method_corr = None if corr_label_pca == "nenhuma" else corr_label_pca
 
     mat_pc1 = pairwise_t_matrix(pc_df, "Classe", "PC1", method_corr)
 
-    view = st.radio("Visualização matriz:", ["Tabela", "Heatmap"], horizontal=True)
-    if view == "Tabela":
+    view_pca = st.radio("Visualização matriz (PC1):",
+                        ["Tabela", "Heatmap"], horizontal=True, key="view_pca")
+    if view_pca == "Tabela":
         st.dataframe(mat_pc1.style.format("{:.3e}"), use_container_width=True)
     else:
         fig_hm = px.imshow(mat_pc1, text_auto=".2e",
@@ -565,44 +568,43 @@ with tab_t:
 
     st.caption("Células vermelhas (p ≤ 0,05) indicam diferença significativa entre clusters.")
 
-with tab_t:
+    # ─────────────────────────────────────────────────────────
+    st.markdown("---")
+
+    # ─────────────── 2.2  Matriz por variável ───────────────
     st.subheader("Matriz de p-values t-Student (Welch)")
 
-    # ① Escolhas do usuário
-    var_pair   = st.selectbox("Variável:",     var_sel,   key="pair_var")
-    estat_pair = st.selectbox("Estatística:",  estat_cols, key="pair_est")
+    var_pair   = st.selectbox("Variável:",  var_sel,   key="pair_var")
+    estat_pair = st.selectbox("Estatística:", estat_cols, key="pair_est")
+
     corr_label = st.radio(
         "Correção múltiplos testes:",
-        ["bonferroni", "fdr_bh", "nenhuma"], index=0
+        ["bonferroni", "fdr_bh", "nenhuma"], index=0,
+        key="corr_var"
     )
     method = None if corr_label == "nenhuma" else corr_label
 
-    # ② Prepara dados ─ apenas valores da variável escolhida
     df_pair = df_filt[df_filt["Variável"] == var_pair]
     grp_ok  = grp_sel if grp_sel in df_pair.columns else "Classe"
 
-    # ③ Calcula matriz de p-values
     mat = pairwise_t_matrix(df_pair, grp_ok, estat_pair, method)
 
-    # ④ Explicação / legenda
     st.markdown(f"""
 **Como ler**  
 * Linhas/colunas = clusters em **{grp_ok}**  
 * Célula = p-value do t-Student (Welch) entre o par de clusters  
-* Correção escolhida = **{corr_label.upper()}**  
+* Correção = **{corr_label.upper()}**  
 * `NaN` → menos de 2 observações em algum cluster  
-* Consideramos significativo se **p ≤ 0,05** (após correção)
+* Significativo se **p ≤ 0,05** (após correção)
 """)
 
-    # ⑤ Tabela ou heatmap
-    view = st.radio("Visualização:", ["Tabela", "Heatmap"], horizontal=True)
-    if view == "Tabela":
+    view_var = st.radio("Visualização:", ["Tabela", "Heatmap"],
+                        horizontal=True, key="view_var")
+    if view_var == "Tabela":
         st.dataframe(mat.style.format("{:.3e}"), use_container_width=True)
     else:
         fig = px.imshow(
-            mat,
-            text_auto=".2e",
-            zmin=0, zmax=0.05,                 # destaca p-values baixos
+            mat, text_auto=".2e", zmin=0, zmax=0.05,
             color_continuous_scale="RdBu_r",
             aspect="auto",
             title=f"p-values t-Student – {var_pair} ({estat_pair})"
