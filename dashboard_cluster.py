@@ -113,9 +113,12 @@ def quadro_resumo_long(df_long: pd.DataFrame,
     for var in variaveis:
         sub = df_long[df_long["Variável"] == var]
 
+        agg_named = {nome: (col_estat, func) for nome, func in agg_dict.items()}
+
         stats_df = (
-            sub.groupby(grupo_col)[col_estat]
-               .agg(agg_dict).T                    # linhas = estat, colunas = clusters
+            sub.groupby(grupo_col)       # agora é DataFrameGroupBy
+               .agg(**agg_named)         # sintaxe moderna ✓
+               .T                        # linhas = estat, colunas = clusters
         )
         row = {(estat, c): stats_df.loc[estat, c]
                for estat in stats_df.index
