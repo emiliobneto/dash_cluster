@@ -516,11 +516,14 @@ with tab_t:
     df_met = df_met[df_met["Classe"].isin(cls_sel)]
 
     # pivot wide – usa a 1ª estatística numérica disponível
+    stat_col = st.selectbox("Estatística usada no PCA:", estat_cols,
+                        index=0, key="pca_stat")
+
     wide = (df_met.pivot_table(
                 index=df_met.index,
                 columns="Variável",
                 values=stat_col)
-            .dropna(axis=1, how="all"))          # remove colunas totalmente vazias
+            .dropna(axis=1, how="all"))
     
     # mantém apenas as variáveis que realmente apareceram
     avail_vars = [v for v in PCA_VARS if v in wide.columns]
