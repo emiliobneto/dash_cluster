@@ -425,25 +425,8 @@ with aba_univ:
     else:
         plot_univariadas(df_uni, estat_univ, grp_active)
 
- # ------------------------------------------------------------------
-    # Quadro resumido por cluster (todas as variáveis) + ANOVA
-    # ------------------------------------------------------------------
-    st.markdown("---")
-    st.subheader(f"Resumo por cluster – {estat_univ}")
-
-    tabela_resumo = quadro_resumo_long(
-        df_filt,           # usa o dataframe já filtrado
-        grp_active,        # coluna de agrupamento (Classe ou outra)
-        var_sel,           # lista de variáveis selecionadas no sidebar
-        estat_univ         # estatística que o usuário escolheu p/ análise
-    )
-
-    st.dataframe(
-        tabela_resumo.style.format({"p_value": "{:.3e}"}),
-        use_container_width=True
-    )
-    with st.expander("Legenda de significância (p-value)"):
-            st.markdown("""
+        with st.expander("Legenda de significância (p-value)"):
+                st.markdown("""
 #### Como interpretar
 * ***p ≤ 0.05*** – rejeitamos H₀: pelo menos dois clusters diferem na estatística analisada.
 * ***p > 0.05*** – não há evidência suficiente para afirmar diferença entre clusters.
