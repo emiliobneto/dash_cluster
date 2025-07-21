@@ -442,19 +442,13 @@ with aba_univ:
         tabela_resumo.style.format({"p_value": "{:.3e}"}),
         use_container_width=True
     )
-
     with st.expander("Legenda de significância (p-value)"):
-        st.markdown(
-            """
-| Estrelas | p ≤ | Interpretação |
-|:---:|:---:|:---|
-| *** | 0.001 | diferença **muito** significativa |
-| **  | 0.01  | diferença **significativa** |
-| *   | 0.05  | diferença moderada |
-| ns  | > 0.05 | sem diferença significativa |
-            """
-        )
-
+            st.markdown("""
+#### Como interpretar
+* ***p ≤ 0.05*** – rejeitamos H₀: pelo menos dois clusters diferem na estatística analisada.
+* ***p > 0.05*** – não há evidência suficiente para afirmar diferença entre clusters.
+""")
+    
 # Aba Estatísticas -------------------------------------------------------
 with aba_stats:
     # ---------------- tabs internas ----------------
@@ -477,11 +471,16 @@ with aba_stats:
             use_container_width=True
         )
         with st.expander("Legenda de significância (p-value)"):
-            st.markdown("""
-#### Como interpretar
-* ***p ≤ 0.05*** – rejeitamos H₀: pelo menos dois clusters diferem na estatística analisada.
-* ***p > 0.05*** – não há evidência suficiente para afirmar diferença entre clusters.
-""")
+            st.markdown(
+            """
+| Estrelas | p ≤ | Interpretação |
+|:---:|:---:|:---|
+| *** | 0.001 | diferença **muito** significativa |
+| **  | 0.01  | diferença **significativa** |
+| *   | 0.05  | diferença moderada |
+| ns  | > 0.05 | sem diferença significativa |
+            """
+        )
 
     # ---------- 2) Matriz pairwise t-Student ----------
     with tab_t:
