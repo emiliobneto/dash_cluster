@@ -537,7 +537,7 @@ with tab_t:
     
     wide = wide[avail_vars]                     # usa só o que existe
     wide["Classe"] = df_met.loc[wide.index, "Classe"]
-    X_std = StandardScaler().fit_transform(wide[PCA_VARS])
+    X_std = StandardScaler().fit_transform(wide[avail_vars])
     pca   = PCA(n_components=3).fit(X_std)
     scores = pca.transform(X_std)
 
