@@ -516,15 +516,24 @@ with tab_t:
     df_met = df_met[df_met["Classe"].isin(cls_sel)]
 
     # pivot wide – usa a 1ª estatística numérica disponível
-    stat_col = estat_cols[0]                       # ou peça ao usuário
-    wide = (df_met.pivot_table(index=df_met.index,
-                               columns="Variável",
-                               values=stat_col)
-            [PCA_VARS].dropna())
+    wide = (df_met.pivot_table(
+                index=df_met.index,
+                columns="Variável",
+                values=stat_col)
+            .dropna(axis=1, how="all"))          # remove colunas totalmente vazias
+    
+    # mantém apenas as variáveis que realmente apareceram
+    avail_vars = [v for v in PCA_VARS if v in wide.columns]
+    
+    if len(avail_vars) < 2:                     # PCA precisa de ≥2 variáveis
+        st.warning(
+            "Os filtros atuais não contêm pelo menos duas das variáveis solicitadas "
+            f"({', '.join(PCA_VARS)}). Selecione outros clusters/método."
+        )
+        st.stop()
+    
+    wide = wide[avail_vars]                     # usa só o que existe
     wide["Classe"] = df_met.loc[wide.index, "Classe"]
-
-    from sklearn.preprocessing import StandardScaler
-    from sklearn.decomposition import PCA
     X_std = StandardScaler().fit_transform(wide[PCA_VARS])
     pca   = PCA(n_components=3).fit(X_std)
     scores = pca.transform(X_std)
