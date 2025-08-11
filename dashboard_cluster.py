@@ -861,7 +861,7 @@ else:
             'Periférico de Alta Densidade Populacional': '#bf7db2',
             'Residencial de Médio Padrão':               '#f7bd6a',
             'Periférico de Média Densidade':             '#cf651f',
-            'Vertical de Uso Misto':                     '#ede4e6',
+            'Vertical de Uso Misto':                     '#b5b8b1',
             'Comércio e Serviços':                       '#793393',
         }
 
@@ -932,6 +932,7 @@ else:
                 st.markdown("**Clusters**")
                 gtmp = gdf_cluster if not cats_sel else gdf_cluster[gdf_cluster[cluster_col].isin(cats_sel)]
                 st.dataframe(gtmp.drop(columns=gtmp.geometry.name, errors='ignore').head(1000), use_container_width=True)
+
 
 
 
