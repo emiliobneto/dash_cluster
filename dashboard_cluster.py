@@ -10,18 +10,29 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.decomposition import PCA
 from typing import List
 
-# Extra (mapa)
-# Protege import do GeoPandas para evitar quebra do app quando não instalado
 try:
     import geopandas as gpd  # type: ignore
     _GPD_AVAILABLE = True
     _GPD_ERR_MSG = ""
-except Exception as _e:
+except Exception as e:
     gpd = None  # type: ignore
     _GPD_AVAILABLE = False
-    _GPD_ERR_MSG = str(_e)
-import folium
-from streamlit_folium import st_folium
+    _GPD_ERR_MSG = str(e)
+
+try:
+    import pyogrio  # acelera leitura de GPKG se presente
+    _HAVE_PYOGRIO = True
+except Exception:
+    _HAVE_PYOGRIO = False
+
+try:
+    import folium
+    from streamlit_folium import st_folium
+    _FOLIUM_AVAILABLE = True
+except Exception:
+    folium = None  # type: ignore
+    st_folium = None  # type: ignore
+    _FOLIUM_AVAILABLE = False
 
 # ───────────────────────── Configuração global ─────────────────────────
 st.set_page_config(
@@ -79,7 +90,7 @@ CLASSE_CORES = {0:'#F4DD63',1:'#B1BF7C',2:'#D58243',3:'#C65534',4:'#6FA097',5:'#
 GROUP_COLS = ["KMeans_k5","Spectral_k5","KMedoids_k5"]
 PASTA_DADOS = BASE_DIR/"data"/"metricas"
 PASTA_ANALISES = BASE_DIR/"data"/"merged"
-PASTA_MAPA = BASE_DIR/"dash_cluster"/"mapa"
+PASTA_MAPA = BASE_DIR / "dash_cluster" / "mapa"
 
 # Mapeamento de cores para a camada de clusters (GeoPackage)
 MAP_CLUSTER_CORES = {
@@ -105,20 +116,24 @@ def carregar_todos_arquivos(pasta: Path):
 
 @st.cache_data(show_spinner=False)
 def carregar_geopackages(pasta: Path):
-    """Lê todos os .gpkg na pasta e retorna dict nome->GeoDataFrame.
-    Se GeoPandas não estiver disponível, retorna {} e mostra aviso.
-    """
+    """Lê todos os .gpkg na pasta e retorna dict nome->GeoDataFrame."""
     gdfs = {}
     if not _GPD_AVAILABLE:
         st.error(
-            "GeoPandas não está disponível (erro: %s). Verifique se 'geopandas', 'fiona', 'shapely' e 'pyproj' estão no requirements.txt." % _GPD_ERR_MSG
+            "GeoPandas indisponível. Erro: %s\nInclua geopandas, shapely, pyproj e (opcional) pyogrio no requirements.txt."
+            % _GPD_ERR_MSG
         )
         return gdfs
     if not pasta.exists():
         return gdfs
+    prefer_engine = "pyogrio" if _HAVE_PYOGRIO else None
     for gpkg in sorted(pasta.glob("*.gpkg")):
         try:
-            gdfs[gpkg.stem] = gpd.read_file(gpkg)
+            if prefer_engine:
+                gdf = gpd.read_file(gpkg, engine=prefer_engine)
+            else:
+                gdf = gpd.read_file(gpkg)
+            gdfs[gpkg.stem.lower()] = gdf
         except Exception as e:
             st.warning(f"Erro ao carregar {gpkg.name}: {e}")
     return gdfs
@@ -136,16 +151,30 @@ def normalizar_df(df, est_cols):
     return df_n
 
 # ───────────────────────── Carregamento Inicial ─────────────────────────
-metric_files = carregar_todos_arquivos(PASTA_DADOS)
-if not metric_files:
+@st.cache_data(show_spinner=False)
+def ler_csv(caminho: str) -> pd.DataFrame:
+    df = pd.read_csv(caminho)
+    return df.loc[:, ~df.columns.str.contains(r'^Unnamed')]
+
+# MÉTRICAS (data/metricas)
+metric_paths = sorted(PASTA_DADOS.rglob("*.csv"))
+if not metric_paths:
     st.error("Nenhum CSV encontrado em data/metricas.")
     st.stop()
-sel_metric = st.selectbox("Selecione o arquivo de métricas:", list(metric_files.keys()), key="sel_metric_top")
-df = metric_files[sel_metric]
 
-merged_files = carregar_todos_arquivos(PASTA_ANALISES)
-if not merged_files:
-    st.info("Nenhum CSV em data/merged para análises avançadas (PCA/pairwise). Algumas funções ficarão indisponíveis.")
+metric_names = [p.name for p in metric_paths]
+sel_metric = st.selectbox("Selecione o arquivo de métricas:", metric_names, key="sel_metric_top")
+df = ler_csv(str(metric_paths[metric_names.index(sel_metric)]))
+
+# ANALISES MERGED (data/merged) – usado em PCA/pairwise
+merged_paths = sorted(PASTA_ANALISES.rglob("*.csv"))
+df_ana = None
+if merged_paths:
+    merged_names = [p.name for p in merged_paths]
+    sel_merge = st.selectbox("Arquivo para PCA / pairwise:", merged_names, key="sel_merged_stats")
+    df_ana = ler_csv(str(merged_paths[merged_names.index(sel_merge)]))
+else:
+    st.warning("Nenhum CSV em data/merged para análises estatísticas/pairwise.", icon="⚠️")
 
 # Listas derivadas
 metodos = sorted(df['Método'].unique())
@@ -395,10 +424,9 @@ with st.expander("🏷️ Univariadas • clique para abrir", expanded=False):
 st.markdown("---")
 st.markdown("## 📐 Estatísticas")
 
-if merged_files:
-    arq_ana = st.selectbox("Arquivo para PCA / pairwise:", list(merged_files.keys()), key="sel_merged_stats")
-    df_ana = merged_files[arq_ana]
-
+if df_ana is None or df_ana.empty:
+    st.caption("Para liberar a aba Estatísticas, selecione um arquivo em **data/merged** no seletor do topo.")
+else:
     tab_global, tab_t = st.tabs(["Testes globais", "t-Student & PCA"])
 
     with tab_global:
@@ -413,6 +441,7 @@ if merged_files:
             grp_ok = grp_global if grp_global in df_filt_global.columns else "Classe"
             df_clean = filtrar_outliers_iqr(df_filt_global, estat_ref, ["Variável", grp_ok])
             tab_res = quadro_resumo_long(df_clean, grp_ok, var_sel_global, estat_ref)
+
             st.caption(f"Outliers removidos: {len(df_filt_global) - len(df_clean)} linhas")
             st.dataframe(tab_res.style.format({"p_value": "{:.3e}"}), use_container_width=True)
 
@@ -432,10 +461,10 @@ if merged_files:
                 st.error("Nenhuma coluna numérica disponível para PCA no arquivo escolhido.")
             else:
                 stat_col = st.selectbox("Estatística PCA:", estat_cols_ana, key="stat_pca")
+
                 wide = (
-                    df_met
-                    .assign(obs_id=lambda d: d.index)
-                    .pivot_table(index="obs_id", columns="Variável", values=stat_col)
+                    df_met.assign(obs_id=lambda d: d.index)
+                          .pivot_table(index="obs_id", columns="Variável", values=stat_col)
                 )
                 PCA_VARS = [
                     "comp_res", "outros_usos", "fator_com",
@@ -458,19 +487,23 @@ if merged_files:
 
                     st.write(f"PC1 explica {pca.explained_variance_ratio_[0]:.1%}; PC2 {pca.explained_variance_ratio_[1]:.1%}")
                     st.plotly_chart(
-                        px.scatter(pc_df, x="PC1", y="PC2", color="Classe", template=PLOTLY_TEMPLATE,
-                                   color_discrete_map=CLASSE_CORES, title="PCA – PC1 × PC2"),
+                        px.scatter(pc_df, x="PC1", y="PC2", color="Classe",
+                                   template=PLOTLY_TEMPLATE, color_discrete_map=CLASSE_CORES,
+                                   title="PCA – PC1 × PC2"),
                         use_container_width=True,
                     )
 
-                    corr_pca = st.radio("Correção múltiplos testes (PC1):", ["bonferroni", "fdr_bh", "nenhuma"], key="corr_pca", horizontal=True)
+                    corr_pca = st.radio("Correção múltiplos testes (PC1):", ["bonferroni", "fdr_bh", "nenhuma"],
+                                        key="corr_pca", horizontal=True)
                     meth_corr = None if corr_pca == "nenhuma" else corr_pca
                     mat_pc1 = pairwise_t_matrix(pc_df, "Classe", "PC1", meth_corr)
+
                     if st.radio("Visualização PC1:", ["Tabela", "Heatmap"], key="view_pc1", horizontal=True) == "Tabela":
                         st.dataframe(mat_pc1.style.format("{:.3e}"), use_container_width=True)
                     else:
                         st.plotly_chart(
-                            px.imshow(mat_pc1, text_auto=".2e", zmin=0, zmax=0.05, color_continuous_scale="RdBu_r", title="Pairwise – PC1"),
+                            px.imshow(mat_pc1, text_auto=".2e", zmin=0, zmax=0.05,
+                                      color_continuous_scale="RdBu_r", title="Pairwise – PC1"),
                             use_container_width=True,
                         )
 
@@ -478,17 +511,20 @@ if merged_files:
                 var_ana = sorted(df_ana["Variável"].unique())
                 var_pair = st.selectbox("Variável:", var_ana, key="var_pair")
                 estat_pair = st.selectbox("Estatística:", estat_cols_ana, key="estat_pair")
-                corr_var = st.radio("Correção múltiplos testes:", ["bonferroni", "fdr_bh", "nenhuma"], key="corr_var", horizontal=True)
+                corr_var = st.radio("Correção múltiplos testes:", ["bonferroni", "fdr_bh", "nenhuma"],
+                                    key="corr_var", horizontal=True)
                 meth_var = None if corr_var == "nenhuma" else corr_var
 
                 df_pair = df_ana[df_ana["Variável"] == var_pair]
                 grp_ok = metodo_pca if metodo_pca in df_pair.columns else "Classe"
                 mat_var = pairwise_t_matrix(df_pair, grp_ok, estat_pair, meth_var)
+
                 if st.radio("Visualização matriz:", ["Tabela", "Heatmap"], key="view_var", horizontal=True) == "Tabela":
                     st.dataframe(mat_var.style.format("{:.3e}"), use_container_width=True)
                 else:
                     st.plotly_chart(
-                        px.imshow(mat_var, text_auto=".2e", zmin=0, zmax=0.05, color_continuous_scale="RdBu_r", title=f"Pairwise – {var_pair}"),
+                        px.imshow(mat_var, text_auto=".2e", zmin=0, zmax=0.05,
+                                  color_continuous_scale="RdBu_r", title=f"Pairwise – {var_pair}"),
                         use_container_width=True,
                     )
 else:
@@ -498,147 +534,151 @@ else:
 st.markdown("---")
 st.markdown("## 🗺️ Mapa (dash_cluster/mapa)")
 
-if not _GPD_AVAILABLE:
-    st.error("Mapa desativado: GeoPandas não foi importado. Instale dependências no requirements.txt. Erro: %s" % _GPD_ERR_MSG)
+if not _GPD_AVAILABLE or not _FOLIUM_AVAILABLE:
+    st.warning("Recursos de mapa indisponíveis. Instale `geopandas`, `folium` e `streamlit-folium` (veja requirements.txt).")
 else:
-    map_gdfs = carregar_geopackages(PASTA_MAPA)
+    with st.expander("Carregar dados do mapa (.gpkg)", expanded=False):
+        load_map = st.checkbox("Ler agora os arquivos da pasta 'dash_cluster/mapa'", value=False)
+
+    map_gdfs = carregar_geopackages(PASTA_MAPA) if load_map else {}
+
+    # defaults
+    gdf_rios = gdf_parque = gdf_cluster = None
+
     if not map_gdfs:
-        st.info("Nenhum .gpkg encontrado em 'dash_cluster/mapa'. Coloque os arquivos 'rios.gpkg', 'parque.gpkg' e 'cluster.gpkg' nessa pasta.")
+        st.info("Nenhum .gpkg encontrado em 'dash_cluster/mapa'. Coloque **rios.gpkg**, **parque.gpkg** e **cluster.gpkg**.")
     else:
-        # Obtém camadas específicas se existirem
-    gdf_rios = map_gdfs.get('rios')
-    gdf_parque = map_gdfs.get('parque')
-    gdf_cluster = map_gdfs.get('cluster')
+        # Obtém camadas específicas se existirem (chaves em minúsculas)
+        gdf_rios    = map_gdfs.get('rios')
+        gdf_parque  = map_gdfs.get('parque')
+        gdf_cluster = map_gdfs.get('cluster')
 
-    # Descobre coluna 'cluster' (case-insensitive)
-    cluster_col = None
-    if gdf_cluster is not None:
-        for c in gdf_cluster.columns:
-            if c.lower() == 'cluster':
-                cluster_col = c
-                break
-
-    # Controles
-    c1, c2, c3 = st.columns([1.2, 1.2, 2])
-    with c1:
-        show_rios = st.checkbox("Mostrar rios", value=(gdf_rios is not None))
-        show_parque = st.checkbox("Mostrar parques", value=(gdf_parque is not None))
-    with c2:
-        if gdf_cluster is not None and cluster_col:
-            categorias = sorted([c for c in gdf_cluster[cluster_col].dropna().unique()])
-            cats_sel = st.multiselect("Clusters a mostrar:", categorias, default=categorias)
-        else:
-            categorias, cats_sel = [], []
-    with c3:
-        basemap = st.selectbox("Base cartográfica:", ["CartoDB positron", "OpenStreetMap", "Stamen Terrain"], index=0)
-
-    # Define bounds/centro
-    def _total_bounds(gdfs):
-        mins, maxs = [], []
-        for g in gdfs:
-            if g is not None and not g.empty:
-                try:
-                    x1, y1, x2, y2 = g.to_crs(4326).total_bounds
-                except Exception:
-                    x1, y1, x2, y2 = g.total_bounds
-                mins.append((x1, y1))
-                maxs.append((x2, y2))
-        if not mins:
-            return (-46.75, -23.80, -46.45, -23.45)  # approx SP
-        x1 = min(m[0] for m in mins); y1 = min(m[1] for m in mins)
-        x2 = max(m[0] for m in maxs); y2 = max(m[1] for m in maxs)
-        return (x1, y1, x2, y2)
-
-    x1, y1, x2, y2 = _total_bounds([gdf_rios, gdf_parque, gdf_cluster])
-    center = ((y1 + y2) / 2.0, (x1 + x2) / 2.0)
-
-    m = folium.Map(location=center, zoom_start=12, tiles=None)
-    if basemap == "CartoDB positron":
-        folium.TileLayer("CartoDB positron").add_to(m)
-    elif basemap == "Stamen Terrain":
-        folium.TileLayer("Stamen Terrain").add_to(m)
-    else:
-        folium.TileLayer("OpenStreetMap").add_to(m)
-
-    # Adiciona rios
-    if show_rios and gdf_rios is not None and not gdf_rios.empty:
-        try:
-            folium.GeoJson(
-                gdf_rios.to_crs(4326),
-                name="Rios",
-                style_function=lambda feat: {
-                    "color": "#BBD2EC",
-                    "weight": 2,
-                    "opacity": 0.9,
-                },
-                tooltip=folium.features.GeoJsonTooltip(fields=[c for c in gdf_rios.columns if c != gdf_rios.geometry.name][:5]),
-            ).add_to(m)
-        except Exception as e:
-            st.warning(f"Falha ao desenhar rios: {e}")
-
-    # Adiciona parques
-    if show_parque and gdf_parque is not None and not gdf_parque.empty:
-        try:
-            folium.GeoJson(
-                gdf_parque.to_crs(4326),
-                name="Parques",
-                style_function=lambda feat: {
-                    "color": "#77942E",
-                    "fillColor": "#77942E",
-                    "fillOpacity": 0.35,
-                    "weight": 1,
-                },
-                tooltip=folium.features.GeoJsonTooltip(fields=[c for c in gdf_parque.columns if c != gdf_parque.geometry.name][:5]),
-            ).add_to(m)
-        except Exception as e:
-            st.warning(f"Falha ao desenhar parques: {e}")
-
-    # Adiciona clusters
-    if gdf_cluster is not None and not gdf_cluster.empty and cluster_col:
-        gplot = gdf_cluster.copy()
-        if cats_sel:
-            gplot = gplot[gplot[cluster_col].isin(cats_sel)]
-        try:
-            def style_cluster(feat):
-                cat = feat['properties'].get(cluster_col)
-                col = MAP_CLUSTER_CORES.get(cat, '#999999')
-                return {
-                    "color": col,
-                    "fillColor": col,
-                    "fillOpacity": 0.45,
-                    "weight": 0.5,
-                }
-
-            folium.GeoJson(
-                gplot.to_crs(4326),
-                name="Clusters",
-                style_function=style_cluster,
-                tooltip=folium.features.GeoJsonTooltip(fields=[cluster_col]),
-            ).add_to(m)
-        except Exception as e:
-            st.warning(f"Falha ao desenhar clusters: {e}")
-
-    folium.LayerControl(collapsed=False).add_to(m)
-
-    # Legenda customizada
-    legend_html = "<div class='legend-row'>" + "".join(
-        [f"<div class='legend-box'><span class='legend-color' style='background:{cor}'></span> {nome}</div>" for nome, cor in MAP_CLUSTER_CORES.items()]
-    ) + "</div>"
-    st.markdown(legend_html, unsafe_allow_html=True)
-
-    st_folium(m, use_container_width=True, returned_objects=[])
-
-    # Tabelas/atributos (opcional)
-    with st.expander("Tabelas de atributos das camadas visíveis"):
-        if show_rios and gdf_rios is not None:
-            st.markdown("**Rios**")
-            st.dataframe(gdf_rios.drop(columns=gdf_rios.geometry.name, errors='ignore').head(500), use_container_width=True)
-        if show_parque and gdf_parque is not None:
-            st.markdown("**Parques**")
-            st.dataframe(gdf_parque.drop(columns=gdf_parque.geometry.name, errors='ignore').head(500), use_container_width=True)
+        # Descobre coluna 'cluster' (case-insensitive)
+        cluster_col = None
         if gdf_cluster is not None:
-            st.markdown("**Clusters**")
-            gtmp = gdf_cluster if not cats_sel else gdf_cluster[gdf_cluster[cluster_col].isin(cats_sel)]
-            st.dataframe(gtmp.drop(columns=gtmp.geometry.name, errors='ignore').head(1000), use_container_width=True)
+            for c in gdf_cluster.columns:
+                if str(c).lower() == 'cluster':
+                    cluster_col = c
+                    break
 
+        # Controles
+        c1, c2, c3 = st.columns([1.2, 1.2, 2])
+        with c1:
+            show_rios   = st.checkbox("Mostrar rios", value=(gdf_rios is not None))
+            show_parque = st.checkbox("Mostrar parques", value=(gdf_parque is not None))
+        with c2:
+            if gdf_cluster is not None and cluster_col:
+                categorias = sorted([c for c in gdf_cluster[cluster_col].dropna().unique()])
+                cats_sel = st.multiselect("Clusters a mostrar:", categorias, default=categorias)
+            else:
+                categorias, cats_sel = [], []
+        with c3:
+            basemap = st.selectbox("Base cartográfica:", ["CartoDB positron", "OpenStreetMap", "Stamen Terrain"], index=0)
+
+        # Bounds/centro (em WGS84)
+        def _total_bounds(gdfs):
+            mins, maxs = [], []
+            for g in gdfs:
+                if g is not None and not g.empty:
+                    try:
+                        x1, y1, x2, y2 = g.to_crs(4326).total_bounds
+                    except Exception:
+                        x1, y1, x2, y2 = g.total_bounds
+                    mins.append((x1, y1)); maxs.append((x2, y2))
+            if not mins:
+                return (-46.75, -23.80, -46.45, -23.45)  # approx SP
+            x1 = min(m[0] for m in mins); y1 = min(m[1] for m in mins)
+            x2 = max(m[0] for m in maxs); y2 = max(m[1] for m in maxs)
+            return (x1, y1, x2, y2)
+
+        x1, y1, x2, y2 = _total_bounds([gdf_rios, gdf_parque, gdf_cluster])
+        center = ((y1 + y2) / 2.0, (x1 + x2) / 2.0)
+
+        m = folium.Map(location=center, zoom_start=12, tiles=None)
+        if basemap == "CartoDB positron":
+            folium.TileLayer("CartoDB positron").add_to(m)
+        elif basemap == "Stamen Terrain":
+            folium.TileLayer("Stamen Terrain").add_to(m)
+        else:
+            folium.TileLayer("OpenStreetMap").add_to(m)
+
+        # Cores
+        cor_rios   = "#BBD2EC"
+        cor_parque = "#77942E"
+        MAP_CLUSTER_CORES = {
+            'Periférico de Alta Densidade Populacional': '#bf7db2',
+            'Residencial de Médio Padrão':               '#f7bd6a',
+            'Periférico de Média Densidade':             '#cf651f',
+            'Vertical de Uso Misto':                     '#ede4e6',
+            'Comércio e Serviços':                       '#793393',
+        }
+
+        # Rios
+        if show_rios and gdf_rios is not None and not gdf_rios.empty:
+            try:
+                folium.GeoJson(
+                    gdf_rios.to_crs(4326),
+                    name="Rios",
+                    style_function=lambda feat: {"color": cor_rios, "weight": 2, "opacity": 0.9},
+                    tooltip=folium.features.GeoJsonTooltip(fields=[c for c in gdf_rios.columns if c != gdf_rios.geometry.name][:5]),
+                ).add_to(m)
+            except Exception as e:
+                st.warning(f"Falha ao desenhar rios: {e}")
+
+        # Parques
+        if show_parque and gdf_parque is not None and not gdf_parque.empty:
+            try:
+                folium.GeoJson(
+                    gdf_parque.to_crs(4326),
+                    name="Parques",
+                    style_function=lambda feat: {"color": cor_parque, "fillColor": cor_parque, "fillOpacity": 0.35, "weight": 1},
+                    tooltip=folium.features.GeoJsonTooltip(fields=[c for c in gdf_parque.columns if c != gdf_parque.geometry.name][:5]),
+                ).add_to(m)
+            except Exception as e:
+                st.warning(f"Falha ao desenhar parques: {e}")
+
+        # Clusters
+        if gdf_cluster is not None and not gdf_cluster.empty and cluster_col:
+            gplot = gdf_cluster.copy()
+            if cats_sel:
+                gplot = gplot[gplot[cluster_col].isin(cats_sel)]
+            try:
+                def style_cluster(feat):
+                    cat = feat['properties'].get(cluster_col)
+                    col = MAP_CLUSTER_CORES.get(cat, '#999999')
+                    return {"color": col, "fillColor": col, "fillOpacity": 0.45, "weight": 0.5}
+
+                folium.GeoJson(
+                    gplot.to_crs(4326),
+                    name="Clusters",
+                    style_function=style_cluster,
+                    tooltip=folium.features.GeoJsonTooltip(fields=[cluster_col]),
+                ).add_to(m)
+            except Exception as e:
+                st.warning(f"Falha ao desenhar clusters: {e}")
+
+        folium.LayerControl(collapsed=False).add_to(m)
+
+        # Legenda
+        legend_html = "<div class='legend-row'>" + "".join(
+            [f"<div class='legend-box'><span class='legend-color' style='background:{cor}'></span> {nome}</div>"
+             for nome, cor in MAP_CLUSTER_CORES.items()]
+        ) + "</div>"
+        st.markdown(legend_html, unsafe_allow_html=True)
+
+        st_folium(m, use_container_width=True, returned_objects=[])
+
+        # Tabelas/atributos
+        with st.expander("Tabelas de atributos das camadas visíveis"):
+            if show_rios and gdf_rios is not None:
+                st.markdown("**Rios**")
+                st.dataframe(gdf_rios.drop(columns=gdf_rios.geometry.name, errors='ignore').head(500), use_container_width=True)
+            if show_parque and gdf_parque is not None:
+                st.markdown("**Parques**")
+                st.dataframe(gdf_parque.drop(columns=gdf_parque.geometry.name, errors='ignore').head(500), use_container_width=True)
+            if gdf_cluster is not None and cluster_col:
+                st.markdown("**Clusters**")
+                gtmp = gdf_cluster if not cats_sel else gdf_cluster[gdf_cluster[cluster_col].isin(cats_sel)]
+                st.dataframe(gtmp.drop(columns=gtmp.geometry.name, errors='ignore').head(1000), use_container_width=True)
 st.caption("⚙️ Dica: os filtros agora ficam embutidos em cada visualização (sessões, univariadas, estatísticas e mapa). Radar plot removido conforme solicitado.")
+
