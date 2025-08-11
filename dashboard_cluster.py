@@ -140,6 +140,58 @@ def carregar_geopackages(pasta: Path):
             st.warning(f"Erro ao carregar {gpkg.name}: {e}")
     return gdfs
 
+def gerar_gpkg_clusters(pasta: Path, gdf_base: "gpd.GeoDataFrame|None" = None,
+                        out_name: str = "cluster_dissolvido.gpkg") -> tuple[Path, "gpd.GeoDataFrame"]:
+    if not _GPD_AVAILABLE:
+        raise RuntimeError("GeoPandas indisponível.")
+
+    if gdf_base is None:
+        cand = None
+        for p in sorted(pasta.glob("*.gpkg")):
+            if "cluster" in p.stem.lower():
+                cand = p; break
+        if cand is None:
+            raise FileNotFoundError("Nenhum .gpkg contendo 'cluster' no nome foi encontrado na pasta do mapa.")
+        if _HAVE_PYOGRIO:
+            gdf = gpd.read_file(cand, engine="pyogrio")
+        else:
+            gdf = gpd.read_file(cand)
+    else:
+        gdf = gdf_base.copy()
+
+    def _find_cluster_col(df):
+        targets = {"cluster", "clusters"}
+        for c in df.columns:
+            key = "".join(ch for ch in str(c).lower() if ch.isalnum())
+            if key in targets:
+                return c
+        return None
+
+    col = _find_cluster_col(gdf)
+    if col is None:
+        raise ValueError("Coluna 'cluster' ou 'clusters' não encontrada no GeoPackage.")
+
+    gdf[col] = gdf[col].astype(str).str.strip()
+    try:
+        from shapely import make_valid
+        gdf["geometry"] = gdf.geometry.apply(make_valid)
+    except Exception:
+        gdf["geometry"] = gdf.buffer(0)
+
+    try:
+        gdf = gdf.to_crs(4326)
+    except Exception:
+        pass
+
+    gdf_out = gdf.dissolve(by=col, as_index=False).rename(columns={col: "cluster"})
+
+    out_path = pasta / out_name
+    if _HAVE_PYOGRIO:
+        gdf_out.to_file(out_path, driver="GPKG", layer="clusters", engine="pyogrio")
+    else:
+        gdf_out.to_file(out_path, driver="GPKG", layer="clusters")
+    return out_path, gdf_out
+
 @st.cache_data(show_spinner=False)
 def normalizar_df(df, est_cols):
     df_n = df.copy()
@@ -703,7 +755,7 @@ if not _GPD_AVAILABLE or not _FOLIUM_AVAILABLE:
     st.warning("Recursos de mapa indisponíveis. Instale `geopandas`, `pyproj`, `shapely`, `pyogrio`, `folium` e `streamlit-folium` (veja requirements.txt).")
 else:
     with st.expander("Carregar dados do mapa (.gpkg)", expanded=False):
-        load_map = st.checkbox("Ler agora os arquivos da pasta 'dash_cluster/mapa'", value=False)
+        load_map = st.checkbox("Ler agora os arquivos da pasta 'data/mapa'", value=False)
 
     # Lê os GPKGs apenas sob demanda (evita travar o boot)
     map_gdfs = carregar_geopackages(PASTA_MAPA) if load_map else {}
@@ -712,21 +764,38 @@ else:
     gdf_rios = gdf_parque = gdf_cluster = None
 
     if not map_gdfs:
-        st.info("Nenhum .gpkg encontrado em 'dash_cluster/mapa'. Coloque **rios.gpkg**, **parque.gpkg** e **cluster.gpkg**.")
+        st.info("Nenhum .gpkg encontrado em 'data/mapa'. Coloque **rios.gpkg**, **parque.gpkg** e **cluster.gpkg**.")
     else:
         # Obtém camadas (chaves minúsculas)
         gdf_rios    = map_gdfs.get('rios')
         gdf_parque  = map_gdfs.get('parque')
         gdf_cluster = map_gdfs.get('cluster')
-
-        # Acha a coluna 'cluster' (case-insensitive)
-        cluster_col = None
-        if gdf_cluster is not None:
-            for c in gdf_cluster.columns:
-                if str(c).lower() == 'cluster':
-                    cluster_col = c
+        
+        # fallback: qualquer .gpkg cujo nome contenha "cluster"
+        if gdf_cluster is None:
+            for k, v in map_gdfs.items():
+                if "cluster" in k:
+                    gdf_cluster = v
                     break
-
+        
+        # descobrir coluna 'cluster' OU 'clusters' (case-insensitive; remove espaços/underscore)
+        def _find_cluster_col(df):
+            targets = {"cluster", "clusters"}
+            for c in df.columns:
+                key = "".join(ch for ch in str(c).lower() if ch.isalnum())
+                if key in targets:
+                    return c
+            return None
+        
+        cluster_col = None
+        if gdf_cluster is not None and not gdf_cluster.empty:
+            cluster_col = _find_cluster_col(gdf_cluster)
+        
+        # padroniza internamente para 'cluster' (facilita o resto do código)
+        if cluster_col and cluster_col != "cluster":
+            gdf_cluster = gdf_cluster.rename(columns={cluster_col: "cluster"})
+            cluster_col = "cluster"
+        categorias, cats_sel = [], []
         # Controles UI
         c1, c2, c3 = st.columns([1.2, 1.2, 2])
         with c1:
@@ -740,6 +809,23 @@ else:
                 categorias, cats_sel = [], []
         with c3:
             basemap = st.selectbox("Base cartográfica:", ["CartoDB positron", "OpenStreetMap", "Stamen Terrain"], index=0)
+
+        with st.expander("⚙️ Gerar .gpkg dissolvido por 'cluster'/ 'clusters'", expanded=False):
+            st.caption("Cria 'cluster_dissolvido.gpkg' (um polígono por categoria). Útil se o arquivo atual está muito fragmentado.")
+            if st.button("Gerar agora"):
+                try:
+                    out_path, gdf_new = gerar_gpkg_clusters(PASTA_MAPA, gdf_cluster)
+                    st.success(f"Gerado: {out_path.name} ({len(gdf_new)} categorias).")
+                    # passa a usar o arquivo recém-gerado
+                    gdf_cluster = gdf_new
+                    cluster_col = "cluster"
+                    # Atualiza seleção de categorias, se a UI já existir
+                    try:
+                        categorias = sorted(gdf_cluster[cluster_col].dropna().unique())
+                    except Exception:
+                        pass
+                except Exception as e:
+                    st.error(f"Falha ao gerar .gpkg: {e}")
 
         # Bounds/centro (WGS84)
         def _total_bounds(gdfs):
@@ -846,6 +932,7 @@ else:
                 st.markdown("**Clusters**")
                 gtmp = gdf_cluster if not cats_sel else gdf_cluster[gdf_cluster[cluster_col].isin(cats_sel)]
                 st.dataframe(gtmp.drop(columns=gtmp.geometry.name, errors='ignore').head(1000), use_container_width=True)
+
 
 
 
