@@ -40,7 +40,7 @@ except Exception:
 st.set_page_config(
     page_title="Dashboard de Análise de Clusters para o Município de São Paulo",
     page_icon="📊",
-    layout="wide",
+    layout="",
     initial_sidebar_state="collapsed",
 )
 
@@ -152,6 +152,127 @@ def normalizar_df(df, est_cols):
                     df_n.loc[mask, est] = (df_n.loc[mask, est] - mn) / (mx - mn)
     return df_n
 
+def montar_matriz_pca(df_met: pd.DataFrame, stat_col: str, group_cols: List[str]) -> tuple[pd.DataFrame, bool]:
+    """
+    Constrói a matriz 'wide' para PCA a partir de df_met.
+    Retorna (wide, is_long):
+      • is_long=True  -> df está em formato longo e foi feito pivot por 'Variável'
+      • is_long=False -> df já está em formato wide (usa colunas numéricas)
+    """
+    tem_variavel = "Variável" in df_met.columns
+    tem_stat = stat_col in df_met.columns
+
+    if tem_variavel and tem_stat:
+        wide = (
+            df_met.assign(_obs=df_met.index)
+                  .pivot_table(index="_obs", columns="Variável", values=stat_col)
+        )
+        return wide, True
+
+    # fallback: formato wide — usa todas as colunas numéricas que não são grupo
+    drop_cols = set(group_cols + ["Classe", "Variável"])
+    num_cols = [c for c in df_met.columns
+                if c not in drop_cols and pd.api.types.is_numeric_dtype(df_met[c])]
+    wide = df_met[num_cols].copy()
+    return wide, False
+
+
+def rodar_pca(wide: pd.DataFrame, max_components: int = 3):
+    """
+    Executa PCA em 'wide' (linhas=observações, colunas=features).
+    Retorna (pc_df, pca, err_msg). Se houver problema, pc_df/pca= None e err_msg com texto.
+    """
+    if wide is None or wide.empty:
+        return None, None, "Matriz vazia para PCA."
+    if wide.shape[1] < 2 or wide.shape[0] < 2:
+        return None, None, "Dados insuficientes (precisa de ≥2 colunas e ≥2 linhas)."
+
+    # padronização
+    X_std = StandardScaler().fit_transform(wide.values)
+    ncomp = min(max_components, wide.shape[1], wide.shape[0])
+    pca = PCA(n_components=ncomp)
+    pcs = pca.fit_transform(X_std)
+
+    cols = [f"PC{i+1}" for i in range(ncomp)]
+    pc_df = pd.DataFrame(pcs, index=wide.index, columns=cols)
+    return pc_df, pca, None
+
+
+def pairwise_t_matrix_safe(df_vals: pd.DataFrame, grupo_col: str, valor_col: str, method: str | None = "bonferroni"):
+    """
+    Versão robusta do pairwise t-test (Welch), com checagens.
+    Retorna (matriz | None, err_msg | None).
+    """
+    if grupo_col not in df_vals.columns or valor_col not in df_vals.columns:
+        return None, f"Colunas ausentes: grupo='{grupo_col}' ou valor='{valor_col}'."
+
+    counts = df_vals.groupby(grupo_col)[valor_col].count()
+    clusters = counts[counts >= 2].index.tolist()
+    if len(clusters) < 2:
+        return None, "Grupos insuficientes para pairwise (precisa de ≥2 grupos com ≥2 observações)."
+
+    mat = pd.DataFrame(np.nan, index=clusters, columns=clusters)
+    pvals, pairs = [], []
+
+    for c1, c2 in combinations(clusters, 2):
+        a = df_vals.loc[df_vals[grupo_col] == c1, valor_col].dropna()
+        b = df_vals.loc[df_vals[grupo_col] == c2, valor_col].dropna()
+        if len(a) < 2 or len(b) < 2:
+            continue
+        _, p = stats.ttest_ind(a, b, equal_var=False)
+        pvals.append(p)
+        pairs.append((c1, c2))
+
+    if not pvals:
+        return None, "Sem pares válidos para o teste t (amostras muito pequenas)."
+
+    if method:
+        pvals = smm.multipletests(pvals, method=method)[1]
+
+    for (c1, c2), p in zip(pairs, pvals):
+        mat.loc[c1, c2] = mat.loc[c2, c1] = p
+
+    return mat, None
+
+
+def render_pairwise_por_variavel(df_ana: pd.DataFrame, metodo_col: str, estat_cols_ana: List[str]):
+    """
+    UI segura para pairwise por variável.
+    • Só aparece se houver coluna 'Variável'
+    """
+    if "Variável" not in df_ana.columns:
+        st.info("O arquivo selecionado em data/merged **não** possui coluna 'Variável'. "
+                "A seção 'Pairwise por variável' fica indisponível para este arquivo.")
+        return
+
+    var_ana = sorted(df_ana["Variável"].dropna().unique())
+    if not var_ana:
+        st.info("Sem valores em 'Variável' após os filtros.")
+        return
+
+    var_pair = st.selectbox("Variável:", var_ana, key="var_pair")
+    estat_pair = st.selectbox("Estatística:", estat_cols_ana, key="estat_pair")
+    corr_var = st.radio("Correção múltiplos testes:", ["bonferroni", "fdr_bh", "nenhuma"],
+                        key="corr_var", horizontal=True)
+    meth_var = None if corr_var == "nenhuma" else corr_var
+
+    df_pair = df_ana[df_ana["Variável"] == var_pair]
+    grp_ok = metodo_col if metodo_col in df_pair.columns else "Classe"
+    mat_var, err = pairwise_t_matrix_safe(df_pair, grp_ok, estat_pair, meth_var)
+
+    if err:
+        st.warning(err)
+        return
+
+    if st.radio("Visualização matriz:", ["Tabela", "Heatmap"], key="view_var", horizontal=True) == "Tabela":
+        st.dataframe(mat_var.style.format("{:.3e}"), use_container_width=True)
+    else:
+        st.plotly_chart(
+            px.imshow(mat_var, text_auto=".2e", zmin=0, zmax=0.05,
+                      color_continuous_scale="RdBu_r", title=f"Pairwise – {var_pair}"),
+            use_container_width=True,
+        )
+    
 # ───────────────────────── Carregamento Inicial ─────────────────────────
 @st.cache_data(show_spinner=False)
 def ler_csv(caminho: str) -> pd.DataFrame:
@@ -464,71 +585,115 @@ else:
             else:
                 stat_col = st.selectbox("Estatística PCA:", estat_cols_ana, key="stat_pca")
 
-                wide = (
-                    df_met.assign(obs_id=lambda d: d.index)
-                          .pivot_table(index="obs_id", columns="Variável", values=stat_col)
-                )
-                PCA_VARS = [
-                    "comp_res", "outros_usos", "fator_com",
-                    "densidade_hec_norm", "mobilidade_norm", "equipamentos_norm",
-                    "a_vl_m2_construcao_norm", "comp_res_norm",
-                    "outros_usos_norm", "fator_com_norm"
-                ]
-                vars_disp = [v for v in PCA_VARS if v in wide.columns]
-                wide = wide[vars_disp].dropna(how="any") if vars_disp else pd.DataFrame()
-
-                if wide.empty or len(vars_disp) < 2 or wide.shape[0] < 2:
-                    st.warning("Dados insuficientes para PCA depois dos filtros.")
-                else:
-                    X_std = StandardScaler().fit_transform(wide)
-                    pca = PCA(n_components=3).fit(X_std)
-                    pcs = pca.transform(X_std)
-
-                    pc_df = pd.DataFrame(pcs, columns=["PC1", "PC2", "PC3"], index=wide.index)
-                    pc_df["Classe"] = df_met.loc[wide.index, "Classe"].values
-
-                    st.write(f"PC1 explica {pca.explained_variance_ratio_[0]:.1%}; PC2 {pca.explained_variance_ratio_[1]:.1%}")
-                    st.plotly_chart(
-                        px.scatter(pc_df, x="PC1", y="PC2", color="Classe",
-                                   template=PLOTLY_TEMPLATE, color_discrete_map=CLASSE_CORES,
-                                   title="PCA – PC1 × PC2"),
-                        use_container_width=True,
+                # ===== 2) Montagem robusta da matriz para PCA (aceita long ou wide) =====
+                tem_variavel = ("Variável" in df_met.columns) and (stat_col in df_met.columns)
+                if tem_variavel:
+                    # formato LONGO -> pivota para WIDE
+                    wide = (
+                        df_met.assign(_obs=df_met.index)
+                              .pivot_table(index="_obs", columns="Variável", values=stat_col)
                     )
+                    is_long = True
+                else:
+                    # formato WIDE -> usa todas numéricas fora das colunas de grupo
+                    drop_cols = set(GROUP_COLS + ["Classe", "Variável"])
+                    num_cols = [c for c in df_met.columns
+                                if c not in drop_cols and pd.api.types.is_numeric_dtype(df_met[c])]
+                    wide = df_met[num_cols].copy()
+                    is_long = False
 
-                    corr_pca = st.radio("Correção múltiplos testes (PC1):", ["bonferroni", "fdr_bh", "nenhuma"],
-                                        key="corr_pca", horizontal=True)
-                    meth_corr = None if corr_pca == "nenhuma" else corr_pca
-                    mat_pc1 = pairwise_t_matrix(pc_df, "Classe", "PC1", meth_corr)
+                # Se veio de LONGO, opcionalmente filtramos pelas PCA_VARS (se existirem)
+                if is_long:
+                    PCA_VARS = [
+                        "comp_res", "outros_usos", "fator_com",
+                        "densidade_hec_norm", "mobilidade_norm", "equipamentos_norm",
+                        "a_vl_m2_construcao_norm", "comp_res_norm",
+                        "outros_usos_norm", "fator_com_norm"
+                    ]
+                    vars_disp = [v for v in PCA_VARS if v in wide.columns]
+                    wide = wide[vars_disp].dropna(how="any") if vars_disp else pd.DataFrame()
+                else:
+                    wide = wide.dropna(how="any")
 
-                    if st.radio("Visualização PC1:", ["Tabela", "Heatmap"], key="view_pc1", horizontal=True) == "Tabela":
-                        st.dataframe(mat_pc1.style.format("{:.3e}"), use_container_width=True)
-                    else:
+                # ===== PCA =====
+                if wide.empty or wide.shape[1] < 2 or wide.shape[0] < 2:
+                    st.warning("Dados insuficientes para PCA depois dos filtros/transformações.")
+                else:
+                    X_std = StandardScaler().fit_transform(wide.values)
+                    ncomp = min(3, wide.shape[1], wide.shape[0])
+                    pca = PCA(n_components=ncomp)
+                    pcs = pca.fit_transform(X_std)
+
+                    pc_cols = [f"PC{i+1}" for i in range(ncomp)]
+                    pc_df = pd.DataFrame(pcs, index=wide.index, columns=pc_cols)
+                    pc_df["Classe"] = df_met.loc[pc_df.index, "Classe"].values
+
+                    if "PC1" in pc_df.columns and "PC2" in pc_df.columns:
+                        st.write(f"PC1 explica {pca.explained_variance_ratio_[0]:.1%}; "
+                                 f"PC2 {pca.explained_variance_ratio_[1]:.1%}")
                         st.plotly_chart(
-                            px.imshow(mat_pc1, text_auto=".2e", zmin=0, zmax=0.05,
-                                      color_continuous_scale="RdBu_r", title="Pairwise – PC1"),
+                            px.scatter(pc_df, x="PC1", y="PC2", color="Classe",
+                                       template=PLOTLY_TEMPLATE, color_discrete_map=CLASSE_CORES,
+                                       title="PCA – PC1 × PC2"),
                             use_container_width=True,
                         )
+                    else:
+                        st.info("PCA gerou menos de 2 componentes — gráfico PC1×PC2 indisponível.")
 
+                    # Pairwise em PC1 (com checagens)
+                    if "PC1" in pc_df.columns:
+                        corr_pca = st.radio("Correção múltiplos testes (PC1):",
+                                            ["bonferroni", "fdr_bh", "nenhuma"],
+                                            key="corr_pca", horizontal=True)
+                        meth_corr = None if corr_pca == "nenhuma" else corr_pca
+                        mat_pc1, err_pw = pairwise_t_matrix_safe(pc_df, "Classe", "PC1", meth_corr)
+
+                        if err_pw:
+                            st.warning(err_pw)
+                        else:
+                            if st.radio("Visualização PC1:", ["Tabela", "Heatmap"],
+                                        key="view_pc1", horizontal=True) == "Tabela":
+                                st.dataframe(mat_pc1.style.format("{:.3e}"), use_container_width=True)
+                            else:
+                                st.plotly_chart(
+                                    px.imshow(mat_pc1, text_auto=".2e", zmin=0, zmax=0.05,
+                                              color_continuous_scale="RdBu_r", title="Pairwise – PC1"),
+                                    use_container_width=True,
+                                )
+
+                # ===== 3) Pairwise por variável (apenas se existir a coluna 'Variável') =====
                 st.markdown("---")
-                var_ana = sorted(df_ana["Variável"].unique())
-                var_pair = st.selectbox("Variável:", var_ana, key="var_pair")
-                estat_pair = st.selectbox("Estatística:", estat_cols_ana, key="estat_pair")
-                corr_var = st.radio("Correção múltiplos testes:", ["bonferroni", "fdr_bh", "nenhuma"],
-                                    key="corr_var", horizontal=True)
-                meth_var = None if corr_var == "nenhuma" else corr_var
-
-                df_pair = df_ana[df_ana["Variável"] == var_pair]
-                grp_ok = metodo_pca if metodo_pca in df_pair.columns else "Classe"
-                mat_var = pairwise_t_matrix(df_pair, grp_ok, estat_pair, meth_var)
-
-                if st.radio("Visualização matriz:", ["Tabela", "Heatmap"], key="view_var", horizontal=True) == "Tabela":
-                    st.dataframe(mat_var.style.format("{:.3e}"), use_container_width=True)
+                if "Variável" not in df_ana.columns:
+                    st.info("O arquivo selecionado em data/merged **não** possui coluna 'Variável'; "
+                            "‘Pairwise por variável’ indisponível para este arquivo.")
                 else:
-                    st.plotly_chart(
-                        px.imshow(mat_var, text_auto=".2e", zmin=0, zmax=0.05,
-                                  color_continuous_scale="RdBu_r", title=f"Pairwise – {var_pair}"),
-                        use_container_width=True,
-                    )
+                    var_ana = sorted(df_ana["Variável"].dropna().unique())
+                    if not var_ana:
+                        st.info("Sem valores em 'Variável' após os filtros.")
+                    else:
+                        var_pair = st.selectbox("Variável:", var_ana, key="var_pair")
+                        estat_pair = st.selectbox("Estatística:", estat_cols_ana, key="estat_pair")
+                        corr_var = st.radio("Correção múltiplos testes:",
+                                            ["bonferroni", "fdr_bh", "nenhuma"],
+                                            key="corr_var", horizontal=True)
+                        meth_var = None if corr_var == "nenhuma" else corr_var
+
+                        df_pair = df_ana[df_ana["Variável"] == var_pair]
+                        grp_ok = metodo_pca if metodo_pca in df_pair.columns else "Classe"
+                        mat_var, err = pairwise_t_matrix_safe(df_pair, grp_ok, estat_pair, meth_var)
+
+                        if err:
+                            st.warning(err)
+                        else:
+                            if st.radio("Visualização matriz:", ["Tabela", "Heatmap"],
+                                        key="view_var", horizontal=True) == "Tabela":
+                                st.dataframe(mat_var.style.format("{:.3e}"), use_container_width=True)
+                            else:
+                                st.plotly_chart(
+                                    px.imshow(mat_var, text_auto=".2e", zmin=0, zmax=0.05,
+                                              color_continuous_scale="RdBu_r", title=f"Pairwise – {var_pair}"),
+                                    use_container_width=True,
+                                )
 
 # ───────────────────────── ABA: MAPA ─────────────────────────
 st.markdown("---")
@@ -681,6 +846,7 @@ else:
                 st.markdown("**Clusters**")
                 gtmp = gdf_cluster if not cats_sel else gdf_cluster[gdf_cluster[cluster_col].isin(cats_sel)]
                 st.dataframe(gtmp.drop(columns=gtmp.geometry.name, errors='ignore').head(1000), use_container_width=True)
+
 
 
 
