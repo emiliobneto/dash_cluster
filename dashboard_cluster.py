@@ -9,8 +9,6 @@ import statsmodels.stats.multitest as smm
 from sklearn.preprocessing import StandardScaler
 from sklearn.decomposition import PCA
 from typing import List
-
-# Extra (mapa)
 import geopandas as gpd
 import folium
 from streamlit_folium import st_folium
@@ -624,3 +622,4 @@ else:
             st.dataframe(gtmp.drop(columns=gtmp.geometry.name, errors='ignore').head(1000), use_container_width=True)
 
 st.caption("⚙️ Dica: os filtros agora ficam embutidos em cada visualização (sessões, univariadas, estatísticas e mapa). Radar plot removido conforme solicitado.")
+
