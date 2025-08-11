@@ -890,7 +890,7 @@ else:
                 attr="© Google", name="Google Hybrid",
                 overlay=False, control=True,
                 subdomains=["mt0","mt1","mt2","mt3"], max_zoom=20
-            ).add_to(m))
+            ).add_to(m)
 
         # Cores
         cor_rios   = "#BBD2EC"
@@ -1010,6 +1010,7 @@ else:
                 st.markdown("**Clusters**")
                 gtmp = gdf_cluster if not cats_sel else gdf_cluster[gdf_cluster[cluster_col].isin(cats_sel)]
                 st.dataframe(gtmp.drop(columns=gtmp.geometry.name, errors='ignore').head(1000), use_container_width=True)
+
 
 
 
