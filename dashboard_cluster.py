@@ -529,8 +529,6 @@ else:
                                   color_continuous_scale="RdBu_r", title=f"Pairwise – {var_pair}"),
                         use_container_width=True,
                     )
-else:
-    st.caption("Para liberar a aba Estatísticas, inclua arquivos em data/merged.")
 
 # ───────────────────────── ABA: MAPA ─────────────────────────
 st.markdown("---")
@@ -683,6 +681,7 @@ else:
                 st.markdown("**Clusters**")
                 gtmp = gdf_cluster if not cats_sel else gdf_cluster[gdf_cluster[cluster_col].isin(cats_sel)]
                 st.dataframe(gtmp.drop(columns=gtmp.geometry.name, errors='ignore').head(1000), use_container_width=True)
+
 
 
 
