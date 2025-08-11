@@ -10,6 +10,7 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.decomposition import PCA
 from typing import List
 
+
 try:
     import geopandas as gpd  # type: ignore
     _GPD_AVAILABLE = True
@@ -33,6 +34,7 @@ except Exception:
     folium = None  # type: ignore
     st_folium = None  # type: ignore
     _FOLIUM_AVAILABLE = False
+
 
 # ───────────────────────── Configuração global ─────────────────────────
 st.set_page_config(
@@ -681,4 +683,5 @@ else:
                 gtmp = gdf_cluster if not cats_sel else gdf_cluster[gdf_cluster[cluster_col].isin(cats_sel)]
                 st.dataframe(gtmp.drop(columns=gtmp.geometry.name, errors='ignore').head(1000), use_container_width=True)
 st.caption("⚙️ Dica: os filtros agora ficam embutidos em cada visualização (sessões, univariadas, estatísticas e mapa). Radar plot removido conforme solicitado.")
+
 
