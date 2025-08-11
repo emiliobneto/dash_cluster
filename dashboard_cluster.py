@@ -808,7 +808,18 @@ else:
             else:
                 categorias, cats_sel = [], []
         with c3:
-            basemap = st.selectbox("Base cartográfica:", ["CartoDB positron", "OpenStreetMap", "Stamen Terrain"], index=0)
+            basemap = st.selectbox(
+                "Base cartográfica:",
+                [
+                    "CartoDB positron",
+                    "OpenStreetMap",
+                    "Stamen Terrain",
+                    "Esri WorldImagery (satélite)",
+                    "Google Satellite",
+                    "Google Hybrid",
+                ],
+                index=0,
+            )
 
         with st.expander("⚙️ Gerar .gpkg dissolvido por 'cluster'/ 'clusters'", expanded=False):
             st.caption("Cria 'cluster_dissolvido.gpkg' (um polígono por categoria). Útil se o arquivo atual está muito fragmentado.")
@@ -847,12 +858,39 @@ else:
         center = ((y1 + y2) / 2.0, (x1 + x2) / 2.0)
 
         m = folium.Map(location=center, zoom_start=12, tiles=None)
+
         if basemap == "CartoDB positron":
-            folium.TileLayer("CartoDB positron").add_to(m)
+            folium.TileLayer("CartoDB positron", name="CartoDB positron").add_to(m)
+        
+        elif basemap == "OpenStreetMap":
+            folium.TileLayer("OpenStreetMap", name="OpenStreetMap").add_to(m)
+        
         elif basemap == "Stamen Terrain":
-            folium.TileLayer("Stamen Terrain").add_to(m)
-        else:
-            folium.TileLayer("OpenStreetMap").add_to(m)
+            folium.TileLayer("Stamen Terrain", name="Stamen Terrain").add_to(m)
+        
+        elif basemap == "Esri WorldImagery (satélite)":
+            folium.TileLayer(
+                tiles="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+                attr="Tiles © Esri — Sources: Esri, Maxar, Earthstar Geographics, and the GIS User Community",
+                name="ESRI WorldImagery",
+                overlay=False, control=True, max_zoom=20
+            ).add_to(m)
+        
+        elif basemap == "Google Satellite":
+            folium.TileLayer(
+                tiles="https://{s}.google.com/vt/lyrs=s&x={x}&y={y}&z={z}",
+                attr="© Google", name="Google Satellite",
+                overlay=False, control=True,
+                subdomains=["mt0","mt1","mt2","mt3"], max_zoom=20
+            ).add_to(m)
+        
+        elif basemap == "Google Hybrid":
+            folium.TileLayer(
+                tiles="https://{s}.google.com/vt/lyrs=s,h&x={x}&y={y}&z={z}",
+                attr="© Google", name="Google Hybrid",
+                overlay=False, control=True,
+                subdomains=["mt0","mt1","mt2","mt3"], max_zoom=20
+            ).add_to(m))
 
         # Cores
         cor_rios   = "#BBD2EC"
@@ -911,24 +949,45 @@ else:
 
         
         folium.LayerControl(collapsed=False, position="topleft").add_to(m)
-        
-        # Estilos para aumentar largura/altura e fonte do LayerControl
-        _STYLE = """
+
+        # CSS para aumentar a caixa, a fonte e os checks
+        _LAYER_CTRL_CSS = """
         <style>
-          .leaflet-control-layers.leaflet-control { font-size: 14px; }
+          /* caixa maior */
+          .leaflet-control-layers.leaflet-control { font-size: 16px !important; }
           .leaflet-control-layers-expanded {
-            width: 260px !important;       /* Largura da caixa */
-            padding: 10px 12px !important; /* Respiro interno */
+            min-width: 280px !important;
+            max-width: 360px !important;
+            padding: 12px 14px !important;
+            line-height: 1.4 !important;
+            box-shadow: 0 2px 14px rgba(0,0,0,.2) !important;
           }
+          /* lista rolável se crescer muito */
           .leaflet-control-layers-list {
-            max-height: 420px !important;  /* Altura máxima antes de criar scroll */
+            max-height: 460px !important;
             overflow-y: auto !important;
           }
-          .leaflet-control-layers-separator { margin: 8px 0 !important; }
+          /* labels e inputs maiores */
+          .leaflet-control-layers-base label,
+          .leaflet-control-layers-overlays label {
+            font-size: 15px !important;
+            display: flex !important;
+            gap: 8px !important;
+            align-items: center !important;
+            margin: 4px 0 !important;
+          }
+          .leaflet-control-layers-base input,
+          .leaflet-control-layers-overlays input {
+            transform: scale(1.25) !important;
+          }
+          .leaflet-control-layers-separator { margin: 10px 0 !important; }
         </style>
         """
-        # injeta CSS dentro do HTML do mapa (funciona dentro do iframe do st_folium)
-        m.get_root().header.add_child(folium.Element(_STYLE))
+        
+        # injeta CSS dentro do HTML do mapa (alguns templates aplicam melhor no body do que no head)
+        _root = m.get_root()
+        _root.header.add_child(folium.Element(_LAYER_CTRL_CSS))  # head
+        _root.html.add_child(folium.Element(_LAYER_CTRL_CSS))    # body (fallback)
 
         # Legenda
         legend_html = "<div class='legend-row'>" + "".join(
@@ -951,6 +1010,7 @@ else:
                 st.markdown("**Clusters**")
                 gtmp = gdf_cluster if not cats_sel else gdf_cluster[gdf_cluster[cluster_col].isin(cats_sel)]
                 st.dataframe(gtmp.drop(columns=gtmp.geometry.name, errors='ignore').head(1000), use_container_width=True)
+
 
 
 
