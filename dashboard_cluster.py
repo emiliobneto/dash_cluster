@@ -92,7 +92,7 @@ CLASSE_CORES = {0:'#F4DD63',1:'#B1BF7C',2:'#D58243',3:'#C65534',4:'#6FA097',5:'#
 GROUP_COLS = ["KMeans_k5","Spectral_k5","KMedoids_k5"]
 PASTA_DADOS = BASE_DIR/"data"/"metricas"
 PASTA_ANALISES = BASE_DIR/"data"/"merged"
-PASTA_MAPA = BASE_DIR / "dash_cluster" / "mapa"
+PASTA_MAPA = BASE_DIR / "data" / "mapa"
 
 # Mapeamento de cores para a camada de clusters (GeoPackage)
 MAP_CLUSTER_CORES = {
@@ -846,6 +846,7 @@ else:
                 st.markdown("**Clusters**")
                 gtmp = gdf_cluster if not cats_sel else gdf_cluster[gdf_cluster[cluster_col].isin(cats_sel)]
                 st.dataframe(gtmp.drop(columns=gtmp.geometry.name, errors='ignore').head(1000), use_container_width=True)
+
 
 
 
