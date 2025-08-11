@@ -537,25 +537,26 @@ st.markdown("---")
 st.markdown("## 🗺️ Mapa (dash_cluster/mapa)")
 
 if not _GPD_AVAILABLE or not _FOLIUM_AVAILABLE:
-    st.warning("Recursos de mapa indisponíveis. Instale `geopandas`, `folium` e `streamlit-folium` (veja requirements.txt).")
+    st.warning("Recursos de mapa indisponíveis. Instale `geopandas`, `pyproj`, `shapely`, `pyogrio`, `folium` e `streamlit-folium` (veja requirements.txt).")
 else:
     with st.expander("Carregar dados do mapa (.gpkg)", expanded=False):
         load_map = st.checkbox("Ler agora os arquivos da pasta 'dash_cluster/mapa'", value=False)
 
+    # Lê os GPKGs apenas sob demanda (evita travar o boot)
     map_gdfs = carregar_geopackages(PASTA_MAPA) if load_map else {}
 
-    # defaults
+    # defaults seguros
     gdf_rios = gdf_parque = gdf_cluster = None
 
     if not map_gdfs:
         st.info("Nenhum .gpkg encontrado em 'dash_cluster/mapa'. Coloque **rios.gpkg**, **parque.gpkg** e **cluster.gpkg**.")
     else:
-        # Obtém camadas específicas se existirem (chaves em minúsculas)
+        # Obtém camadas (chaves minúsculas)
         gdf_rios    = map_gdfs.get('rios')
         gdf_parque  = map_gdfs.get('parque')
         gdf_cluster = map_gdfs.get('cluster')
 
-        # Descobre coluna 'cluster' (case-insensitive)
+        # Acha a coluna 'cluster' (case-insensitive)
         cluster_col = None
         if gdf_cluster is not None:
             for c in gdf_cluster.columns:
@@ -563,7 +564,7 @@ else:
                     cluster_col = c
                     break
 
-        # Controles
+        # Controles UI
         c1, c2, c3 = st.columns([1.2, 1.2, 2])
         with c1:
             show_rios   = st.checkbox("Mostrar rios", value=(gdf_rios is not None))
@@ -577,7 +578,7 @@ else:
         with c3:
             basemap = st.selectbox("Base cartográfica:", ["CartoDB positron", "OpenStreetMap", "Stamen Terrain"], index=0)
 
-        # Bounds/centro (em WGS84)
+        # Bounds/centro (WGS84)
         def _total_bounds(gdfs):
             mins, maxs = [], []
             for g in gdfs:
@@ -682,6 +683,7 @@ else:
                 st.markdown("**Clusters**")
                 gtmp = gdf_cluster if not cats_sel else gdf_cluster[gdf_cluster[cluster_col].isin(cats_sel)]
                 st.dataframe(gtmp.drop(columns=gtmp.geometry.name, errors='ignore').head(1000), use_container_width=True)
-st.caption("⚙️ Dica: os filtros agora ficam embutidos em cada visualização (sessões, univariadas, estatísticas e mapa). Radar plot removido conforme solicitado.")
+
+
 
 
