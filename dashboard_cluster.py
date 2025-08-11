@@ -909,7 +909,26 @@ else:
             except Exception as e:
                 st.warning(f"Falha ao desenhar clusters: {e}")
 
-        folium.LayerControl(collapsed=False).add_to(m)
+        
+        folium.LayerControl(collapsed=False, position="topleft").add_to(m)
+        
+        # Estilos para aumentar largura/altura e fonte do LayerControl
+        _STYLE = """
+        <style>
+          .leaflet-control-layers.leaflet-control { font-size: 14px; }
+          .leaflet-control-layers-expanded {
+            width: 260px !important;       /* Largura da caixa */
+            padding: 10px 12px !important; /* Respiro interno */
+          }
+          .leaflet-control-layers-list {
+            max-height: 420px !important;  /* Altura máxima antes de criar scroll */
+            overflow-y: auto !important;
+          }
+          .leaflet-control-layers-separator { margin: 8px 0 !important; }
+        </style>
+        """
+        # injeta CSS dentro do HTML do mapa (funciona dentro do iframe do st_folium)
+        m.get_root().header.add_child(folium.Element(_STYLE))
 
         # Legenda
         legend_html = "<div class='legend-row'>" + "".join(
@@ -932,6 +951,7 @@ else:
                 st.markdown("**Clusters**")
                 gtmp = gdf_cluster if not cats_sel else gdf_cluster[gdf_cluster[cluster_col].isin(cats_sel)]
                 st.dataframe(gtmp.drop(columns=gtmp.geometry.name, errors='ignore').head(1000), use_container_width=True)
+
 
 
 
