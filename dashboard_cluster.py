@@ -9,7 +9,17 @@ import statsmodels.stats.multitest as smm
 from sklearn.preprocessing import StandardScaler
 from sklearn.decomposition import PCA
 from typing import List
-import geopandas as gpd
+
+# Extra (mapa)
+# Protege import do GeoPandas para evitar quebra do app quando não instalado
+try:
+    import geopandas as gpd  # type: ignore
+    _GPD_AVAILABLE = True
+    _GPD_ERR_MSG = ""
+except Exception as _e:
+    gpd = None  # type: ignore
+    _GPD_AVAILABLE = False
+    _GPD_ERR_MSG = str(_e)
 import folium
 from streamlit_folium import st_folium
 
@@ -95,8 +105,15 @@ def carregar_todos_arquivos(pasta: Path):
 
 @st.cache_data(show_spinner=False)
 def carregar_geopackages(pasta: Path):
-    """Lê todos os .gpkg na pasta e retorna dict nome->GeoDataFrame"""
+    """Lê todos os .gpkg na pasta e retorna dict nome->GeoDataFrame.
+    Se GeoPandas não estiver disponível, retorna {} e mostra aviso.
+    """
     gdfs = {}
+    if not _GPD_AVAILABLE:
+        st.error(
+            "GeoPandas não está disponível (erro: %s). Verifique se 'geopandas', 'fiona', 'shapely' e 'pyproj' estão no requirements.txt." % _GPD_ERR_MSG
+        )
+        return gdfs
     if not pasta.exists():
         return gdfs
     for gpkg in sorted(pasta.glob("*.gpkg")):
@@ -195,7 +212,7 @@ def pairwise_t_matrix(df: pd.DataFrame, grupo_col: str, estat_col: str, method: 
     return mat
 
 
-def filtrar_outliers_iqr(df: pd.DataFrame, valor_col: str, agrupadores: list[str]) -> pd.DataFrame:
+def filtrar_outliers_iqr(df: pd.DataFrame, valor_col: str, agrupadores: List[str]) -> pd.DataFrame:
     def _apply(gr):
         q1 = gr[valor_col].quantile(0.25)
         q3 = gr[valor_col].quantile(0.75)
@@ -481,11 +498,14 @@ else:
 st.markdown("---")
 st.markdown("## 🗺️ Mapa (dash_cluster/mapa)")
 
-map_gdfs = carregar_geopackages(PASTA_MAPA)
-if not map_gdfs:
-    st.info("Nenhum .gpkg encontrado em 'dash_cluster/mapa'. Coloque os arquivos 'rios.gpkg', 'parque.gpkg' e 'cluster.gpkg' nessa pasta.")
+if not _GPD_AVAILABLE:
+    st.error("Mapa desativado: GeoPandas não foi importado. Instale dependências no requirements.txt. Erro: %s" % _GPD_ERR_MSG)
 else:
-    # Obtém camadas específicas se existirem
+    map_gdfs = carregar_geopackages(PASTA_MAPA)
+    if not map_gdfs:
+        st.info("Nenhum .gpkg encontrado em 'dash_cluster/mapa'. Coloque os arquivos 'rios.gpkg', 'parque.gpkg' e 'cluster.gpkg' nessa pasta.")
+    else:
+        # Obtém camadas específicas se existirem
     gdf_rios = map_gdfs.get('rios')
     gdf_parque = map_gdfs.get('parque')
     gdf_cluster = map_gdfs.get('cluster')
@@ -622,4 +642,3 @@ else:
             st.dataframe(gtmp.drop(columns=gtmp.geometry.name, errors='ignore').head(1000), use_container_width=True)
 
 st.caption("⚙️ Dica: os filtros agora ficam embutidos em cada visualização (sessões, univariadas, estatísticas e mapa). Radar plot removido conforme solicitado.")
-
