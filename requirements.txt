@@ -1,11 +1,14 @@
-# requirements.txt
-streamlit>=1.34.0      # fornece st, st.cache_data, layout wide etc.
-pandas>=2.2.0          # leitura/filtragem de CSV
-plotly>=5.21.0         # px e graph_objects
-scipy>=1.12.0          # scipy.stats para ANOVA
-numpy>=1.26.0          # dependência explícita do SciPy / Pandas
-pydrive2>=1.19.0
-google-auth>=2.30.0
-gdown>=5.0
-statsmodels>=0.14
-scikit-learn>=1.4
+streamlit==1.36.0
+pandas==2.2.2
+numpy==1.26.4
+scipy==1.13.1
+statsmodels==0.14.2
+scikit-learn==1.5.1
+plotly==5.22.0
+geopandas==1.0.1
+shapely==2.0.4
+pyproj==3.6.1
+fiona==1.9.6
+rtree==1.3.0
+folium==0.16.0
+streamlit-folium==0.21.0
