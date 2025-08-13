@@ -921,7 +921,7 @@ else:
                 folium.GeoJson(
                     gdf_parque.to_crs(4326),
                     name="Parques",
-                    style_function=lambda feat: {"color": cor_parque, "fillColor": cor_parque, "fillOpacity": 0.35, "weight": 1},
+                    style_function=lambda feat: {"color": cor_parque, "fillColor": cor_parque, "fillOpacity": 0.65, "weight": 1},
                     tooltip=folium.features.GeoJsonTooltip(fields=[c for c in gdf_parque.columns if c != gdf_parque.geometry.name][:5]),
                 ).add_to(m)
             except Exception as e:
@@ -936,7 +936,7 @@ else:
                 def style_cluster(feat):
                     cat = feat['properties'].get(cluster_col)
                     col = MAP_CLUSTER_CORES.get(cat, '#999999')
-                    return {"color": col, "fillColor": col, "fillOpacity": 0.45, "weight": 0.5}
+                    return {"color": col, "fillColor": col, "fillOpacity": 0.75, "weight": 0.8}
 
                 folium.GeoJson(
                     gplot.to_crs(4326),
@@ -956,9 +956,9 @@ else:
           /* caixa maior */
           .leaflet-control-layers.leaflet-control { font-size: 16px !important; }
           .leaflet-control-layers-expanded {
-            min-width: 280px !important;
-            max-width: 360px !important;
-            padding: 12px 14px !important;
+            min-width: 360px !important;
+            max-width: 480px !important;
+            padding: 18px 20px !important;
             line-height: 1.4 !important;
             box-shadow: 0 2px 14px rgba(0,0,0,.2) !important;
           }
@@ -1010,6 +1010,7 @@ else:
                 st.markdown("**Clusters**")
                 gtmp = gdf_cluster if not cats_sel else gdf_cluster[gdf_cluster[cluster_col].isin(cats_sel)]
                 st.dataframe(gtmp.drop(columns=gtmp.geometry.name, errors='ignore').head(1000), use_container_width=True)
+
 
 
 
