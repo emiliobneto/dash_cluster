@@ -38,7 +38,7 @@ except Exception:
 
 # ───────────────────────── Configuração global ─────────────────────────
 st.set_page_config(
-    page_title="Dashboard de Análise de Clusters para o Município de São Paulo",
+    page_title="Do dado à decisão: design de interação para painéis de dados urbanos na escala de bairro",
     page_icon="📊",
     layout="wide",
     initial_sidebar_state="collapsed",
@@ -1010,6 +1010,7 @@ else:
                 st.markdown("**Clusters**")
                 gtmp = gdf_cluster if not cats_sel else gdf_cluster[gdf_cluster[cluster_col].isin(cats_sel)]
                 st.dataframe(gtmp.drop(columns=gtmp.geometry.name, errors='ignore').head(1000), use_container_width=True)
+
 
 
 
