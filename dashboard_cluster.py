@@ -81,7 +81,7 @@ with col_logo:
 with col_title:
     st.markdown(
         """
-        <h1Do dado à decisão: design de interação para painéis de dados urbanos na escala de bairro</h1>
+        <h1>Do dado à decisão: design de interação para painéis de dados urbanos na escala de bairro</h1>
         """,
         unsafe_allow_html=True,
     )
