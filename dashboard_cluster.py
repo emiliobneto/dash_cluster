@@ -81,7 +81,7 @@ with col_logo:
 with col_title:
     st.markdown(
         """
-        <h1>DASHBOARD DE ANÁLISE DE CLUSTERS PARA O MUNICÍPIO DE SÃO PAULO</h1>
+        <h1Do dado à decisão: design de interação para painéis de dados urbanos na escala de bairro</h1>
         """,
         unsafe_allow_html=True,
     )
@@ -1010,6 +1010,7 @@ else:
                 st.markdown("**Clusters**")
                 gtmp = gdf_cluster if not cats_sel else gdf_cluster[gdf_cluster[cluster_col].isin(cats_sel)]
                 st.dataframe(gtmp.drop(columns=gtmp.geometry.name, errors='ignore').head(1000), use_container_width=True)
+
 
 
 
